@@ -1,0 +1,255 @@
+/* ══════════════════════════════════════════════════════════════════════════
+   Design tokens — the single place colour, type, radius, shadow and motion
+   are defined. Change a value here and the whole app follows.
+
+   Two halves:
+     1. raw values in :root / .dark        — what swaps per theme
+     2. an @theme inline map                — what turns them into utilities
+
+   Why `@theme inline` and not plain `@theme`: `inline` makes a utility emit
+   `var(--page)` instead of copying the value at build time. Copying would bake
+   the light value into `bg-page` and no runtime class swap could ever change
+   it — so `inline` is what makes light/dark work at all here.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* ───────────────────────────── 1. raw values ─────────────────────────────
+   Contrast ratios are measured, not estimated. The pairs that are easy to get
+   wrong carry their ratio in a comment; the rule is AA (4.5:1) for text.
+
+   One rule this palette depends on: alpha never goes on a foreground token.
+   `text-fg-subtle/70` would drop below AA. Alpha is for backgrounds and
+   borders only.                                                            */
+/* The Qorvexa identity: deep clinical teal on cool mist. Chosen to read as
+   trustworthy and medical rather than borrowing another product's warm-paper
+   look. All ratios re-checked after the rebrand; same AA rules apply.       */
+:root {
+  --page:        #f7f9f8;   /* app background — cool mist, not white        */
+  --surface:     #ffffff;   /* raised: cards, composer, menus               */
+  --sunken:      #edf2f0;   /* recessed: user pill, table headers           */
+  --line:        #dfe7e3;
+  --line-strong: #c3d0ca;
+
+  --fg:          #121614;   /* 17:1 on page                                 */
+  --fg-muted:    #3a423e;   /* 10:1                                         */
+  --fg-subtle:   #64706a;   /* 4.7:1 — the floor for real text              */
+
+  --accent:      #0e7c6d;   /* fills — deep teal                            */
+  --accent-fg:   #ffffff;   /* 5.1:1 on accent                              */
+  --accent-ink:  #0c6e60;   /* accent as *text*: 5.9:1 on page              */
+  --accent-soft: #e2f1ed;   /* accent as a background wash                  */
+
+  --danger:      #b3261e;   /* 5.7:1 on page                                */
+  --warning:     #8a5a09;
+  --success:     #1f6f43;
+
+  /* Ink, not a surface. See the note by --color-overlay below. */
+  --overlay:     #1f2724;
+
+  /* Deliberately does NOT invert with the theme — see the note below. */
+  --code:        #15201c;
+  --code-fg:     #e4ece8;
+}
+
+.dark {
+  --page:        #141917;
+  --surface:     #1c2320;
+  --sunken:      #0f1412;
+  --line:        #303b36;
+  --line-strong: #4d5c55;
+
+  --fg:          #eff4f1;   /* 16:1 on page                                 */
+  --fg-muted:    #c3cdc7;   /* 9:1                                          */
+  --fg-subtle:   #93a099;   /* 6:1                                          */
+
+  --accent:      #2eb39d;
+  --accent-fg:   #07211b;   /* flips to dark ink: 6.5:1 on #2eb39d. White
+                               here would fail — this flip is the whole
+                               reason --accent-fg exists as a token.        */
+  --accent-ink:  #52c7b2;   /* 8:1 on page; --accent itself would be lower  */
+  --accent-soft: #16352f;
+
+  --danger:      #f08d84;   /* 6.9:1                                        */
+  --warning:     #e5b567;
+  --success:     #6fca97;
+
+  /* Inverts to light ink, so one `hover:bg-overlay/6` lightens here and
+     darkens in light mode — no dark: twin anywhere. */
+  --overlay:     #f2f7f4;
+
+  /* Goes *darker* than the page (#141917), not lighter. A code block that
+     inverted would come out light; one that merely matched the page would
+     stop reading as a block. Recessed is the correct direction. */
+  --code:        #0d1210;
+  --code-fg:     #e4ece8;
+}
+
+/* `:where()` keeps the variant at zero specificity, so utilities still win. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ───────────────────── 2. the token map ─────────────────────────────────
+   Tailwind's default palette is cleared. This is deliberate and load-bearing:
+   with `--color-*: initial` there is no `slate-500`, no `rose-600`, no
+   leftover `brand-950`, so a stray legacy colour is an *unknown class* that
+   `better-tailwindcss/no-unknown-classes` fails on. Tailwind never warns
+   about a class it doesn't recognise — it silently emits nothing, which is
+   exactly how `brand-950` survived four references and green CI. Clearing the
+   namespace converts that silence into a lint error.                       */
+@theme {
+  --color-*: initial;
+  --font-*: initial;
+}
+
+@theme inline {
+  /* keep only the two non-negotiables from the default palette */
+  --color-white: #fff;
+  --color-black: #000;
+
+  --color-page:        var(--page);
+  --color-surface:     var(--surface);
+  --color-sunken:      var(--sunken);
+  --color-line:        var(--line);
+  --color-line-strong: var(--line-strong);
+
+  --color-fg:          var(--fg);
+  --color-fg-muted:    var(--fg-muted);
+  --color-fg-subtle:   var(--fg-subtle);
+
+  --color-accent:      var(--accent);
+  --color-accent-fg:   var(--accent-fg);
+  --color-accent-ink:  var(--accent-ink);
+  --color-accent-soft: var(--accent-soft);
+
+  --color-danger:      var(--danger);
+  --color-warning:     var(--warning);
+  --color-success:     var(--success);
+
+  /* Ink rather than a surface. The old code had two hover tints
+     (slate-200/70 on the sidebar, slate-100/70 on tool cards) that differed
+     only because they sat on different backgrounds. As ink with an opacity
+     modifier, `hover:bg-overlay/6` is correct on every surface in both
+     themes: one class, no per-surface calibration, no dark: variant. */
+  --color-overlay:     var(--overlay);
+
+  --color-code:        var(--code);
+  --color-code-fg:     var(--code-fg);
+
+  /* ── type ────────────────────────────────────────────────────────────
+     Serif prose with sans UI text: the reading surface feels editorial,
+     the controls stay crisp.                                            */
+  --font-sans:  'Inter Variable', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-serif: 'Source Serif 4 Variable', Georgia, ui-serif, serif;
+  --font-mono:  'JetBrains Mono Variable', ui-monospace, SFMono-Regular, monospace;
+
+  /* Three named steps replace the 15 arbitrary text-[10px]/text-[11px]
+     values that were scattered through the components. */
+  --text-label: 0.625rem;
+  --text-label--line-height: 0.875rem;
+  --text-label--letter-spacing: 0.06em;
+  --text-label--font-weight: 600;
+
+  --text-2xs: 0.6875rem;
+  --text-2xs--line-height: 1rem;
+
+  --text-xs: 0.75rem;
+  --text-xs--line-height: 1.125rem;
+
+  --text-sm: 0.875rem;
+  --text-sm--line-height: 1.375rem;
+
+  /* assistant prose: 15/26 */
+  --text-prose: 0.9375rem;
+  --text-prose--line-height: 1.625rem;
+
+  --text-base: 0.9375rem;
+  --text-base--line-height: 1.625rem;
+
+  --text-lg: 1.0625rem;
+  --text-lg--line-height: 1.5rem;
+  --text-lg--letter-spacing: -0.01em;
+
+  --text-xl: 1.3125rem;
+  --text-xl--line-height: 1.75rem;
+  --text-xl--letter-spacing: -0.015em;
+
+  --text-2xl: 1.75rem;
+  --text-2xl--line-height: 2.125rem;
+  --text-2xl--letter-spacing: -0.02em;
+
+  /* ── shape & depth ─────────────────────────────────────────────────── */
+  --radius-card:  0.875rem;
+  --radius-input: 1.25rem;
+  --shadow-lift: 0 1px 2px rgb(0 0 0 / 0.04), 0 4px 12px rgb(0 0 0 / 0.05);
+  --shadow-menu: 0 4px 24px rgb(0 0 0 / 0.10);
+
+  /* ── motion ────────────────────────────────────────────────────────────
+     Restraint rules: nothing over 320ms; nothing animated that updates more
+     than once a second (the live tool timer uses tabular-nums, not motion);
+     spring easing only on discrete confirmations, never on entrances.    */
+  --ease-soft:   cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  --duration-fast: 140ms;
+  --duration-mid:  220ms;
+  --duration-slow: 320ms;
+
+  /* `--duration-*` is not a Tailwind namespace, so there is no `duration-fast`
+     utility — the vars above are for the --animate-* shorthands and for
+     `duration-(--duration-mid)` where a transition needs the slower step.
+     Overriding the two defaults instead means a bare `transition-colors`
+     already runs at the theme's fast/soft setting, which is what most of the
+     app wants. */
+  --default-transition-duration: 140ms;
+  --default-transition-timing-function: var(--ease-soft);
+
+  --animate-rise:     rise     var(--duration-mid)  var(--ease-soft)   both;
+  --animate-slide-in: slide-in var(--duration-fast) var(--ease-soft)   both;
+  --animate-pop:      pop      var(--duration-slow) var(--ease-spring) both;
+  --animate-scale-in: scale-in var(--duration-fast) var(--ease-soft)   both;
+  --animate-shimmer:  shimmer  1.6s linear infinite;
+  --animate-wave:     wave     1.2s var(--ease-soft) infinite;
+  --animate-caret:    caret    1.1s step-end infinite;
+  --animate-rail:     rail     var(--duration-slow) var(--ease-soft) both;
+  --animate-swap:     swap     var(--duration-slow) var(--ease-soft) both;
+}
+
+/* Keyframes sit outside @theme so they are emitted once regardless of which
+   --animate-* utilities survive tree-shaking. */
+@keyframes rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes slide-in {
+  from { opacity: 0; transform: translateX(-6px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes pop {
+  0%   { opacity: 0; transform: scale(0.6); }
+  100% { opacity: 1; transform: scale(1); }
+}
+@keyframes scale-in {
+  from { opacity: 0; transform: scale(0.96); }
+  to   { opacity: 1; transform: scale(1); }
+}
+@keyframes shimmer {
+  from { background-position: -180% 0; }
+  to   { background-position: 180% 0; }
+}
+@keyframes wave {
+  0%, 60%, 100% { opacity: 0.35; transform: none; }
+  30%           { opacity: 1;    transform: translateY(-3px); }
+}
+@keyframes caret {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0; }
+}
+@keyframes rail {
+  from { transform: scaleY(0); }
+  to   { transform: scaleY(1); }
+}
+/* Theme-toggle icon on selection. Rotation has to be an animation that
+   *settles*, not a persistent `rotate-180` class: a crescent moon held
+   upside-down does not read as a moon, it reads as some other glyph. */
+@keyframes swap {
+  from { opacity: 0; transform: rotate(-120deg) scale(0.6); }
+  to   { opacity: 1; transform: none; }
+}

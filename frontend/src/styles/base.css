@@ -1,0 +1,121 @@
+/* Everything that is not a token: element defaults, the native-UI fixes that
+   Tailwind classes cannot reach, and one custom utility. */
+
+@layer base {
+  html {
+    /* Removes the grey flash on tap targets on Android. */
+    -webkit-tap-highlight-color: transparent;
+    /* Set imperatively too by ThemeProvider — this is the pre-JS default. */
+    color-scheme: light;
+    scrollbar-gutter: stable;
+  }
+  html.dark { color-scheme: dark; }
+
+  body {
+    background-color: var(--page);
+    color: var(--fg);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    /* Inter's tabular figures and contextual alternates; `cv11` gives the
+       single-storey 'a' that keeps small UI text legible. */
+    font-feature-settings: 'cv11', 'ss01';
+    text-rendering: optimizeLegibility;
+  }
+
+  ::selection {
+    background-color: color-mix(in oklab, var(--accent) 26%, transparent);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  /* A mouse click on a button should not leave a ring behind. */
+  :focus:not(:focus-visible) { outline: none; }
+
+  /* Chrome's autofill box ignores background-color outright — an inset shadow
+     is the only thing that overrides it. Without this the login inputs are
+     pale-blue-on-cream in light mode and near-illegible in dark. */
+  input:-webkit-autofill,
+  input:-webkit-autofill:hover,
+  input:-webkit-autofill:focus {
+    -webkit-text-fill-color: var(--fg);
+    -webkit-box-shadow: 0 0 0 1000px var(--surface) inset;
+    box-shadow: 0 0 0 1000px var(--surface) inset;
+    caret-color: var(--fg);
+  }
+
+  /* Inputs do not inherit font-family by default. */
+  input, textarea, button, select { font: inherit; }
+
+  /* Firefox: textarea keeps a 2px baseline gap without this. */
+  textarea { vertical-align: top; }
+}
+
+/* Thin scrollbars — the message list, tool results and sidebar all scroll, and
+   the default chrome is visually loud beside them. */
+@utility scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in oklab, var(--overlay) 24%, transparent) transparent;
+
+  &::-webkit-scrollbar { width: 8px; height: 8px; }
+  &::-webkit-scrollbar-track { background: transparent; }
+  &::-webkit-scrollbar-thumb {
+    border-radius: 9999px;
+    background-color: color-mix(in oklab, var(--overlay) 22%, transparent);
+  }
+  &:hover::-webkit-scrollbar-thumb {
+    background-color: color-mix(in oklab, var(--overlay) 34%, transparent);
+  }
+}
+
+/* The loading shimmer. A sweep, not a pulse: `animate-pulse` fades a block in
+   and out, which reads as *disabled* rather than as loading. */
+@utility shimmer-sweep {
+  border-radius: 0.5rem;
+  background-color: color-mix(in oklab, var(--overlay) 6%, transparent);
+  background-image: linear-gradient(
+    100deg,
+    transparent 35%,
+    color-mix(in oklab, var(--overlay) 9%, transparent) 50%,
+    transparent 65%
+  );
+  background-size: 300% 100%;
+  background-repeat: no-repeat;
+}
+
+/* Touch targets: the visible glyph stays small, the hit area does not. Below
+   the `pointer: coarse` query this costs nothing, so desktop layout is
+   unchanged while every icon control clears 44px on a phone. */
+@utility touch-target {
+  @media (pointer: coarse) {
+    position: relative;
+
+    &::after {
+      content: '';
+      position: absolute;
+      inset-inline-start: 50%;
+      inset-block-start: 50%;
+      width: 44px;
+      height: 44px;
+      transform: translate(-50%, -50%);
+    }
+  }
+}
+
+/* One global gate for every animation and transition in the app.
+   The caret is the single deliberate exception: a static caret is fine, but a
+   *missing* one removes the only signal that tokens are still arriving. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  [data-caret] {
+    animation: none !important;
+    opacity: 1 !important;
+  }
+}
