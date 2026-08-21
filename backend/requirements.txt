@@ -1,0 +1,34 @@
+# --- web ---
+fastapi==0.141.1
+uvicorn==0.52.4
+python-multipart==0.0.32  # multipart parsing for image upload
+
+# --- database ---
+psycopg==3.3.4  # Postgres driver (v3)
+psycopg-pool==3.3.1  # connection pool
+psycopg-binary==3.3.4  # prebuilt libpq, no compiler needed
+
+# --- auth ---
+bcrypt==5.0.0
+PyJWT==2.13.0
+
+# --- data / config ---
+pyarrow==25.0.1
+PyYAML==6.0.3
+pydantic-settings==2.15.0
+python-dotenv==1.2.3
+rapidfuzz==3.14.5  # fuzzy doctor-name resolution
+
+# --- dev / CI ---
+# Renders the synthetic literature corpus to PDF. Generation-time only; the app
+# never imports it.
+reportlab==5.0.1
+pytest==9.1.1
+pytest-asyncio==1.4.0
+httpx==0.28.1
+ruff==0.16.4
+
+# OPTIONAL — error tracking. app/main.py enables Sentry only when SENTRY_DSN is
+# set, and degrades with a warning if this is absent. Uncomment (and pin) to turn
+# it on; left out by default so the base image carries no telemetry dependency.
+# sentry-sdk==2.20.0

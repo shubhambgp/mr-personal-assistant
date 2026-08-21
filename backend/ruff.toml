@@ -1,0 +1,20 @@
+target-version = "py312"
+line-length = 100
+
+[lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "C4", "RET", "PTH", "ASYNC"]
+ignore = [
+    "E501",    # line length is handled by the formatter, not the linter
+    "B008",    # Depends() in a default is the FastAPI idiom
+    "RET504",  # a named return value is often clearer than inlining it
+]
+
+[lint.per-file-ignores]
+# Eval and ETL scripts do sys.path surgery before importing app.*, which is
+# exactly what E402 flags. It is deliberate: they run as scripts, not packages.
+"evals/*.py" = ["E402"]
+"etl/*.py" = ["E402"]
+"tests/*.py" = ["E402"]
+
+[lint.isort]
+known-first-party = ["app", "etl", "evals"]

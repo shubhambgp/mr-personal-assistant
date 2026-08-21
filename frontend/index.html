@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- interactive-widget=resizes-content: without it the on-screen keyboard
+         is drawn *over* the layout and covers the composer. With it the
+         viewport shrinks and the grid's last row stays visible. -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content"
+    />
+    <!-- Keeps native controls and scrollbars from defaulting to light before
+         the pre-paint script below runs. -->
+    <meta name="color-scheme" content="light dark" />
+    <!-- Set imperatively by lib/theme.ts applyTheme(): in markup this can only
+         vary by prefers-color-scheme, which is wrong whenever an explicit
+         choice disagrees with the OS. -->
+    <meta name="theme-color" content="#f7f9f8" />
+    <title>MR Personal Assistant</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%230e7c6d'/><path d='M9 22V10h5.2a3.9 3.9 0 010 7.8H12V22z' fill='%23fff'/></svg>"
+    />
+    <script>
+      // Runs before first paint so a dark-mode reload never flashes light.
+      //
+      // The 'qorvexa-theme' literal is duplicated from src/lib/theme.ts
+      // (THEME_KEY) on purpose: this script executes before any module exists
+      // and cannot import it. Change one, change the other.
+      //
+      // Three modes: 'light' | 'dark' | 'system'. Anything else (absent,
+      // corrupt, or written by an older build) is treated as 'system'.
+      try {
+        var stored = localStorage.getItem('qorvexa-theme')
+        var mode = stored === 'light' || stored === 'dark' ? stored : 'system'
+        var dark =
+          mode === 'system'
+            ? window.matchMedia('(prefers-color-scheme: dark)').matches
+            : mode === 'dark'
+        document.documentElement.classList.toggle('dark', dark)
+        document.documentElement.style.colorScheme = dark ? 'dark' : 'light'
+        var meta = document.querySelector('meta[name="theme-color"]')
+        if (meta) meta.content = dark ? '#141917' : '#f7f9f8'
+      } catch (e) {}
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/app/main.tsx"></script>
+  </body>
+</html>

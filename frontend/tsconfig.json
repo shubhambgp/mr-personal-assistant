@@ -1,0 +1,30 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": false,
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "noEmit": true,
+    "types": ["vite/client"],
+
+    // Mirrored in vite.config.ts `resolve.alias`. Both are required: this one
+    // teaches tsc, that one teaches the bundler.
+    //
+    // No `baseUrl` on purpose. It is deprecated (TS flags it, and pinning
+    // `ignoreDeprecations` to a version string just moves the breakage to the
+    // next upgrade). Without baseUrl, `paths` targets must be RELATIVE — hence
+    // "./src/*", resolved against this file's directory.
+    "paths": { "@/*": ["./src/*"] }
+  },
+  "include": ["src"]
+}

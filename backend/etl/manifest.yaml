@@ -1,0 +1,225 @@
+# MR Personal Assistant — schema manifest. SINGLE SOURCE OF TRUTH.
+#
+# Three things derive from this file, so they cannot drift apart:
+#   1. etl/load_postgres.py  -> the DDL, the load, and the cleaning transforms
+#   2. app/bot/schema.py     -> queryable_columns() / pii_columns() / glossary_text()
+#   3. app/tools/sql_tools.py-> the run_sql scoped CTEs (built from queryable_columns)
+#
+# Do not hand-edit the database schema. Change it here and re-run the loader.
+#
+# Column entry forms:
+#   Source_Col: canonical_name                       -- rename only, lands as TEXT
+#   Source_Col: {rename: x, type: <pg type>, ...}    -- with a cast and/or flags
+#
+# Flags:
+#   type:           the PostgreSQL type to cast to. Omit for TEXT.
+#   null_sentinel:  a literal string that means NULL in the source (this data
+#                   uses the 4-character text "null" rather than real NULLs).
+#   pii:            true  -> excluded from every scoped CTE and rejected by name
+#                   in run_sql. See CLAUDE.md; never hardcode a PII list.
+#
+# Table-level keys:
+#   source_file      parquet under backend/data/
+#   vintage_column   keep only rows at MAX(this column) — drops stale re-sends
+#   name_norm_from   generate a normalised, fuzzy-matchable copy of this column
+#   scope            how run_sql scopes this table: chair | doctor | global
+#   pk               columns forming the primary key (informational + DDL)
+
+tables:
+
+  # doctor_codes is folded in here: persona_* and avg_rcpa_national are
+  # per-doctor attributes carried on each chair-doctor row.
+  doctors:
+    source_file: qorvexa_doctors.parquet
+    vintage_column: load_date
+    name_norm_from: doctor_name
+    scope: chair
+    columns:
+      Chair_ID:                {rename: chair_id,           type: bigint}
+      Doctor_ID:               {rename: doctor_id,          type: bigint}
+      Full_Name:               {rename: doctor_name,        null_sentinel: "null"}
+      SPEC_DESC:               {rename: specialty,          null_sentinel: "null"}
+      CLINIC_NAME:             {rename: clinic_name,        null_sentinel: "null"}
+      City_Name:               {rename: city_name,          null_sentinel: "null"}
+      MOBILE:                  {rename: mobile,             null_sentinel: "null", pii: true}
+      Avg_3_Month_RCPA:        {rename: avg_3_month_rcpa,   type: "double precision", null_sentinel: "null"}
+      Scientific_Engagement:   {rename: scientific_engagement, type: boolean}
+      Patient_Support:         {rename: patient_support,    type: boolean}
+      Avg_RCPA_National_Level: {rename: avg_rcpa_national,  type: "double precision", null_sentinel: "null"}
+      Persona1:                {rename: persona_prescriber, null_sentinel: "null"}
+      Persona2:                {rename: persona_type,       null_sentinel: "null"}
+      Persona3:                {rename: persona_loyalty,    null_sentinel: "null"}
+      Persona4:                {rename: persona_digital,    null_sentinel: "null"}
+      load_date:               {rename: load_date,          type: date}
+
+  # actual_visits + planned_visits merged behind a visit_type discriminator.
+  # The two compatibility views below split them apart again.
+  visits:
+    source_file: qorvexa_visits.parquet
+    vintage_column: load_date
+    scope: chair
+    columns:
+      CHAIR_ID:        {rename: chair_id,      type: bigint}
+      DOCTOR_ID:       {rename: doctor_id,     type: bigint}
+      VISIT_TYPE:      {rename: visit_type}
+      VISIT_DATE:      {rename: visit_date,    type: timestamptz}
+      With_ABM_RBM_BO: {rename: accompanied_by, null_sentinel: "null"}
+      load_date:       {rename: load_date,     type: date}
+
+  required_pending_visits:
+    source_file: qorvexa_visit_requirements.parquet
+    vintage_column: load_date
+    scope: chair
+    columns:
+      CHAIR_ID:                 {rename: chair_id,                 type: bigint}
+      DOCTOR_ID:                {rename: doctor_id,                type: bigint}
+      year:                     {rename: year,                     type: bigint}
+      month:                    {rename: month,                    type: bigint}
+      Number_of_Visits:         {rename: number_of_visits,         type: bigint}
+      Visit_Freq:               {rename: visit_freq,               null_sentinel: "null"}
+      Required_Visits:          {rename: required_visits,          type: bigint}
+      Visit_Pending_this_Month: {rename: visit_pending_this_month, type: bigint}
+      load_date:                {rename: load_date,                type: date}
+
+  brands:
+    source_file: qorvexa_brands.parquet
+    vintage_column: load_date
+    scope: chair
+    columns:
+      Chair_ID:          {rename: chair_id,          type: bigint}
+      DR_ID:             {rename: doctor_id,         type: bigint}
+      Brand_Name:        {rename: brand_name,        null_sentinel: "null"}
+      CM_Priscribed_Qty: {rename: cm_prescribed_qty, type: "double precision", null_sentinel: "null"}
+      PM_Priscribed_Qty: {rename: pm_prescribed_qty, type: "double precision", null_sentinel: "null"}
+      Final_RCPA:        {rename: final_rcpa,        type: "double precision", null_sentinel: "null"}
+      CM_COMPANY_TARGET: {rename: cm_target,         type: "double precision", null_sentinel: "null"}
+      PM_COMPANY_TARGET: {rename: pm_target,         type: "double precision", null_sentinel: "null"}
+      Growth_Booster:    {rename: growth_booster,    null_sentinel: "null"}
+      Brand_priority:    {rename: brand_priority,    null_sentinel: "null"}
+      Brand_Rank:        {rename: brand_rank,        type: bigint}
+      load_date:         {rename: load_date,         type: date}
+
+  hooks:
+    source_file: qorvexa_engagement_hooks.parquet
+    vintage_column: load_date
+    scope: chair
+    columns:
+      CHAIR_ID:      {rename: chair_id,      type: bigint}
+      DR_ID:         {rename: doctor_id,     type: bigint}
+      NOTES:         {rename: notes}
+      Hook_category: {rename: hook_category, null_sentinel: "null"}
+      Product_Desc:  {rename: product_desc,  null_sentinel: "null"}
+      Work_Date:     {rename: work_date,     type: date}
+      load_date:     {rename: load_date,     type: date}
+
+  chemists:
+    source_file: qorvexa_chemists.parquet
+    vintage_column: load_date
+    scope: chair
+    columns:
+      CHAIR_ID:       {rename: chair_id,       type: bigint}
+      CHEMIST_ID:     {rename: chemist_id,     type: bigint}
+      DR_ID:          {rename: doctor_id,      type: bigint}
+      Chemist_Name:   {rename: chemist_name,   null_sentinel: "null"}
+      # Arrives as an ISO timestamp string ("2026-07-08T00:00:00.000Z") in a
+      # column that is semantically a date — hence timestamptz-then-date.
+      Last_Work_Date: {rename: last_work_date, type: date, null_sentinel: "null"}
+      load_date:      {rename: load_date,      type: date}
+
+  reps:
+    source_file: qorvexa_reps.parquet
+    vintage_column: load_date
+    scope: chair
+    columns:
+      CHAIR_ID: {rename: chair_id, type: bigint}
+      SBU_ID:   {rename: sbu_id,   type: bigint}
+      rep_name: {rename: rep_name, null_sentinel: "null"}
+      REP_CODE: {rename: rep_code, type: bigint}
+      load_date: {rename: load_date, type: date}
+
+  rep_metrics:
+    source_file: qorvexa_rep_metrics.parquet
+    vintage_column: load_date
+    scope: chair
+    columns:
+      Chair_ID:              {rename: chair_id,              type: bigint}
+      Month:                 {rename: month,                 type: bigint}
+      Year:                  {rename: year,                  type: bigint}
+      no_of_doctors:         {rename: no_of_doctors,         type: bigint, null_sentinel: "null"}
+      MCR_Count:             {rename: mcr_count,             type: "double precision", null_sentinel: "null"}
+      MCR_Coverage:          {rename: mcr_coverage,          type: "double precision", null_sentinel: "null"}
+      MV_Frequency:          {rename: mv_frequency,          type: "double precision", null_sentinel: "null"}
+      Average_Calls_Per_Day: {rename: average_calls_per_day, type: "double precision", null_sentinel: "null"}
+      load_date:             {rename: load_date,             type: date}
+
+  # thresholds + leaderboard_thresholds merged: the per-SBU performance band
+  # plus the company-wide MCR/MVC thresholds. Reference data, not rep-owned,
+  # so scope: global.
+  targets:
+    source_file: qorvexa_targets.parquet
+    vintage_column: load_date
+    scope: global
+    columns:
+      sbu_id:                  {rename: sbu_id,                  type: bigint}
+      cluster_name:            {rename: cluster_name}
+      Performance_lower_limit: {rename: performance_lower_limit, type: "double precision"}
+      Performance_upper_limit: {rename: performance_upper_limit, type: "double precision"}
+      mcr_threshold:           {rename: mcr_threshold,           type: "double precision"}
+      mvc_threshold:           {rename: mvc_threshold,           type: "double precision"}
+      load_date:               {rename: load_date,               type: date}
+
+
+# Compatibility views. The tool layer names the pre-merge table shapes, so
+# these reconstruct that interface over the merged physical tables. Keeping
+# them means the SQL in app/tools/sql_tools.py needs no merge-awareness.
+#
+# IMPORTANT: keep these in step with the `columns:` blocks above. A column
+# renamed or dropped there breaks the matching view at LOAD time (loudly),
+# not at query time.
+#
+# `scope` mirrors the table-level key and drives run_sql's CTE generation.
+views:
+  doctor_codes:
+    scope: doctor
+    # Declared, not parsed out of the SQL. load_postgres.py asserts the created
+    # view's real columns match this list, so a drifted view fails at LOAD time.
+    columns: [doctor_id, avg_rcpa_national, persona_prescriber, persona_type,
+              persona_loyalty, persona_digital]
+    sql: |
+      SELECT DISTINCT doctor_id, avg_rcpa_national, persona_prescriber,
+             persona_type, persona_loyalty, persona_digital
+      FROM doctors
+  actual_visits:
+    scope: chair
+    columns: [chair_id, doctor_id, work_date, accompanied_by, load_date]
+    sql: |
+      SELECT chair_id, doctor_id, visit_date AS work_date, accompanied_by, load_date
+      FROM visits WHERE visit_type = 'actual'
+  planned_visits:
+    scope: chair
+    columns: [chair_id, doctor_id, visit_date, load_date]
+    sql: |
+      SELECT chair_id, doctor_id, visit_date, load_date
+      FROM visits WHERE visit_type = 'planned'
+  thresholds:
+    scope: global
+    columns: [mcr_threshold, mvc_threshold, load_date]
+    sql: |
+      SELECT DISTINCT mcr_threshold, mvc_threshold, load_date FROM targets
+  leaderboard_thresholds:
+    scope: global
+    columns: [sbu_id, cluster_name, performance_upper_limit, performance_lower_limit]
+    sql: |
+      SELECT sbu_id, cluster_name, performance_upper_limit, performance_lower_limit
+      FROM targets
+
+# Indexes on the hot join/filter keys. chair_id leads every scoped query.
+indexes:
+  brands:                  [chair_id, doctor_id]
+  chemists:                [chair_id, doctor_id, chemist_id]
+  doctors:                 [chair_id, doctor_id, name_norm]
+  hooks:                   [chair_id, doctor_id]
+  rep_metrics:             [chair_id]
+  reps:                    [chair_id, rep_code]
+  required_pending_visits: [chair_id, doctor_id]
+  visits:                  [chair_id, doctor_id, visit_type]
