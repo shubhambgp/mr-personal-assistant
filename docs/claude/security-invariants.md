@@ -49,3 +49,45 @@ from the manifest. Keep it that way.
 `app/bot/schema.py:pii_columns()`. Never hardcode a list of PII column names —
 a second copy can only drift, and the copy that drifts is the one that leaks.
 
+## 1.5 The tool layer connects read-only
+
+Two roles, two DSNs:
+
+| DSN | Role | Used by |
+|---|---|---|
+| `DATABASE_URL` | owner | ETL, auth lookups, chat-history writes |
+| `DATABASE_URL_RO` | `qorvexa_ro`, `SELECT` only | everything the agent touches |
+
+The regex guards in `sql_tools.py` are a filter. The read-only role is the
+boundary. Do not point the tool layer at the owner DSN "just for now", and do
+not grant `qorvexa_ro` anything beyond `SELECT`.
+
+**The agenda's write path, and why it does not break this.** Sending mail and
+adding a task are writes, and a write-capable tool cannot honour the letter of
+this rule. It honours the purpose: the *tool handler* never touches a pool. It
+calls `app/services/agenda.py`, which owns the connection and writes through the
+owner pool exactly as `services/conversations.py` already does for chat history —
+the same pattern, and the same reasoning. What matters is that `qorvexa_ro`, the
+role model-composed SQL runs as, has no privileges in the `agenda` schema at all.
+A dedicated third role narrowed to those two tables is the stronger version and
+is deliberately deferred; it would add a DSN, a pool and two CI changes for a
+narrowing `evals/test_agenda_guardrails.py` already asserts.
+
+## 1.6 The data model is not user-facing
+
+Never put the table/column listing back into `build_instructions()`. It lives in
+the `run_sql` tool description, and that placement is load-bearing: when the
+listing was in the system prompt, the model read it as general knowledge and
+recited it — "list down all the tables" returned a bullet list of every scoped
+alias, "show me the schema of my_reps" returned a column-and-type table.
+
+The rep is a medical representative, not a DBA. Questions about tables, columns,
+schemas or counts are really questions about *capability*, and the rules in
+`SYSTEM_RULES` carry the answer to give instead. Reframe, do not merely refuse —
+"what data do you have about me?" should return their name, code, cluster and
+current metrics, not a list of column names.
+
+`guardrails.check_internal_disclosure()` measures whether this holds, and
+`tests/test_internal_disclosure.py::test_the_system_prompt_no_longer_carries_the_schema`
+guards the root cause directly.
+
