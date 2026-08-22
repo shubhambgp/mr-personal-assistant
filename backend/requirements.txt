@@ -12,6 +12,9 @@ psycopg-binary==3.3.4  # prebuilt libpq, no compiler needed
 bcrypt==5.0.0
 PyJWT==2.13.0
 
+# --- model ---
+openai==3.3.1
+
 # --- data / config ---
 pyarrow==25.0.1
 PyYAML==6.0.3
