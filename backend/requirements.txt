@@ -15,6 +15,15 @@ PyJWT==2.13.0
 # --- model ---
 openai==3.3.1
 
+# --- agent orchestration ---
+# LangGraph is here for one reason: human-in-the-loop. interrupt() plus a
+# checkpointer is the part that is genuinely painful to hand-roll, and an
+# approval gate ("send this to Dr Sharma?") is a real pharma compliance need.
+# See ENGINEERING_LOG entry 15 for what was verified before committing to it.
+langgraph==1.2.11
+langgraph-checkpoint-postgres==3.1.2
+langchain-openai==1.6.0
+
 # --- data / config ---
 pyarrow==25.0.1
 PyYAML==6.0.3

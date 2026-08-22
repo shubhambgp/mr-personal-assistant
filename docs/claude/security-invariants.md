@@ -91,3 +91,78 @@ current metrics, not a list of column names.
 `tests/test_internal_disclosure.py::test_the_system_prompt_no_longer_carries_the_schema`
 guards the root cause directly.
 
+## 1.7 Any new tool provider follows the same rules
+
+Adding RAG or an MCP server means adding a `ToolProvider` to
+`app/registry.py`. It does **not** mean touching `app/bot/agent.py`.
+
+* **RAG:** retrieval must filter on `ctx.chair_id` through the `documents`
+  table. A vector search with no tenant predicate returns another rep's
+  documents ranked by cosine distance — and the results still look plausible,
+  which is why this will not show up in casual testing.
+* **Agenda (Gmail/Calendar):** the mailbox is never a tool parameter and never a
+  client input. It is resolved server-side from `chair_id` — a verified token
+  claim — through exactly one function, `services/agenda.connection()`, and
+  attached to `RepContext` by `deps.agenda_rep`. Both `chair_id` **and**
+  `rep_code` are matched, and a mismatch **deletes** the row: a field force
+  reassigns a rep code when someone leaves, and keyed on one identifier the
+  replacement would inherit the previous rep's mailbox.
+
+  It is stored server-side rather than carried in the JWT **deliberately**, and
+  this is a considered deviation from the older wording ("populated from the
+  verified token"): a claim inside an 8-hour token cannot be withdrawn, so a rep
+  who disconnects at 09:05 would still be asserting the address at 17:00, and
+  there is no refresh rotation or revocation list. A stored connection is revoked
+  in one statement. Both properties this rule cares about survive — the model
+  cannot name a mailbox, and the mailbox is not client-supplied.
+
+  `_FORBIDDEN_PARAMS` in `app/tools/base.py` enforces it mechanically, the same
+  way the `chair_id` rule already is, and the check is **recursive** because
+  `create_event` takes an array of attendees and a forbidden name one level down
+  used to pass. `to` is deliberately not on that list: the recipient is what the
+  human approves, and it is controlled instead by deriving it from the thread
+  server-side plus a correspondent allowlist.
+* **MCP:** still the empty seam. Remote tool descriptions and results are
+  third-party text that reaches the model: treat them as data, never as
+  instructions. The agenda is its own provider, not an MCP server.
+* **Mail bodies are the widest untrusted surface in the app.** A retrieved PDF at
+  least had to be ingested by someone; anyone who knows the rep's address can put
+  text in front of the model. The "data, not instructions" rule therefore lives in
+  the tool *description*, where a mail body cannot reach it — never only in the
+  payload.
+* Name collisions are a hard error by design. A remote server exposing
+  `get_daily_plan` must fail at startup, not silently shadow ours. Do not
+  "fix" that with last-one-wins.
+
+## 1.8 LangGraph: three rules the graph must keep
+
+The agent core is a `StateGraph` (`app/bot/graph.py`). It exists for one reason —
+human-in-the-loop — and it brought one new class of risk with it.
+
+* **`RepContext` never goes in graph state.** State is checkpointed and
+  resumable; identity must be re-derived from the verified JWT on *every* entry,
+  including a HITL resume. It travels in `config["configurable"]["rep"]`, and
+  tools close over it exactly as before. A resumed thread carrying a persisted
+  identity is a resumed thread that can run as the wrong rep.
+* **`thread_id` is never client-supplied.** It is the conversation uuid returned
+  by `conversations.get_or_create`, which filters on `(id, chair_id)` and creates
+  a fresh row when the id is not the caller's. That is the only thing stopping
+  rep B resuming rep A's transcript, and
+  `evals/test_guardrails.py::test_a_foreign_conversation_id_never_becomes_the_graph_thread`
+  is what keeps it true.
+* **The checkpoint tables are never granted to `qorvexa_ro`.** They hold every
+  rep's full message history. `AsyncPostgresSaver` creates them *unqualified*, so
+  with the app's normal `search_path=app,public` they would have landed in `app`
+  — which the ETL drops on every load **and** which auto-grants SELECT to the
+  read-only role via `ALTER DEFAULT PRIVILEGES`. `run_sql`'s denylist is built
+  from the manifest and would not have known their names. Hence `etl/agent_schema.sql`,
+  a dedicated `agent` schema, and a checkpointer connection pinned to
+  `search_path=agent`. Do not add a GRANT there. See ENGINEERING_LOG 15.
+
+**Tools are adapted, not rewritten.** `ToolRegistry.build()` still runs first and
+still mechanically rejects a `chair_id` parameter; `app/bot/tool_adapter.py`
+converts `ToolSpec` to `StructuredTool` downstream of that check. Do not
+"simplify" this by turning the tool providers into `@tool` functions — the
+invariant is the whole security model, and re-expressing it inside someone
+else's abstraction is how such things get quietly lost.
+
