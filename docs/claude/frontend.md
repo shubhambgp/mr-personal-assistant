@@ -33,3 +33,21 @@ Applies to everything under `frontend/`.
   `bg-*-100 dark:bg-*-950` pair. If you find yourself needing `dark:`, the token
   is probably modelled wrong.
 
+## Layout footguns
+
+* **`min-w-0` on a grid or flex item is load-bearing and has no visual
+  signature.** Grid and flex items carry `min-width: auto`, so they refuse to
+  shrink below their content's min-content width. One 8-column tool result was
+  enough to push the whole page into a 300px horizontal scroll on a phone. A
+  "tidy the classNames" pass that removes one of these breaks nothing visible
+  until content overflows.
+* **`cx` is `twMerge(clsx(...))`, not string concatenation.** Argument order
+  decides which class wins. Plain concatenation left it to stylesheet order,
+  which silently changes whenever the theme does.
+
+## Streaming
+
+* `features/chat/useChatStream.ts` is a `fetch()` + `ReadableStream` SSE reader
+  — EventSource cannot POST, and we need multipart for images. The backend's
+  `tool_start`/`tool_end` split is part of the contract; render in-flight state
+  from it.

@@ -46,6 +46,13 @@ cannot catch a bug in the transport. One slipped through exactly that way — se
 ENGINEERING_LOG 16. A green eval gate is not the same claim as "a user can send
 a message"; check both.
 
+## Streaming is part of the contract
+
+`tool_start` fires *before* a handler runs and `tool_end` after. The previous
+implementation only emitted one event after completion, so every tool card in
+the UI rendered with a ~0s duration and nothing appeared on screen while a slow
+query was in flight. Do not collapse these back into one event.
+
 ## The manifest is the source of truth
 
 `backend/etl/manifest.yaml` defines the schema. Three things derive from it:
