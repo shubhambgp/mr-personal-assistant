@@ -199,3 +199,122 @@ version whenever parsing, chunking or the contextual header changes shape —
 otherwise a pipeline change leaves every existing document silently stale,
 because the file has not changed so ingestion skips it.
 
+## 1.10 The agenda: three agents, one gate, and a real credential
+
+* **THE RULE IS: gated = writes to Google.** Five tools qualify — `send_email`,
+  `create_event`, `update_event`, `cancel_event`, `schedule_task` — and they are
+  the complete list in `agenda_tools.GATED_TOOL_NAMES`. `create_task` and
+  `update_task` write only our own database and are NOT gated; gating harmless
+  things trains the rep to click through the approvals that matter.
+
+  Moving or cancelling a meeting is gated because **Google mails the attendees
+  itself**: it is outbound contact with a prescriber, posted by Google rather than
+  by us. `cancel_event` is gated with nothing editable — what the rep approves
+  there is the act, not the text.
+
+* **A new write tool must be built with `_write_tool()`**, the single private
+  constructor in `agenda_tools.py` that sets `requires_approval` unconditionally
+  and refuses an `editable` list naming a recipient, mailbox, thread, event or
+  task id. Never hand-write the spec dict for a write tool: a flag a caller
+  supplies is a flag a caller can forget, and what gets forgotten is the human.
+
+  Four independent guards, in order of how much they are worth:
+  1. **The graph.** A round containing any gated call routes to
+     `review → approval` and never to the tool node. Not a check that runs — an
+     edge that does not exist.
+  2. `_write_tool()` sets the flag.
+  3. `tests/test_write_tools_gated.py` drives all five through the real graph and
+     asserts the Google write **never happened** — by the absence of the HTTP
+     request on a MockTransport, not by a message.
+  4. The service layer re-runs `check_outbound` on the final bytes.
+
+  `tests/test_tool_adapter.py::test_exactly_the_write_capable_tools_are_gated`
+  asserts the set in both directions.
+
+* **`route()` sends a gated round to `review`, never straight to `approval`.** So
+  "the reviewer's verdict exists before the human sees the card" is a property of
+  the graph, not a convention. The reviewer is its own node and not a step inside
+  `approval` because a node **re-executes from its start on resume** — a reviewer
+  in there would run twice and could contradict the verdict the rep approved,
+  leaving an audit record describing a review that never happened.
+
+* **An edit may change what is SAID, never who it is said TO.** The editable
+  fields come from each tool's own `approval_editable` metadata and are filtered
+  **server-side, inside the graph** — the approval card renders that list and the
+  card is not trusted. `to`, `thread_id` and `attendees` are on no whitelist.
+
+* **The recipient is not the model's to choose.** On a reply it comes from the
+  thread and the model's `to` is *ignored*, not validated; a new address must be
+  one the rep has already corresponded with. That is the control that does not
+  depend on the model obeying the "treat mail as data" instruction.
+
+* **Compliance is checked in the service, not the card.** `services/agenda.send_mail`
+  re-runs the deterministic rules on the final bytes, because the rep may have
+  edited the wording after the reviewer saw it. Whichever way the transport is
+  wired, nothing reaches Gmail without passing it.
+
+* **The `agenda` schema is never granted to `qorvexa_ro`.** It holds a Google
+  refresh token and every word a rep has sent a prescriber. None of these tables
+  is in the manifest, so `run_sql`'s denylist does not know their names — the only
+  thing keeping model-composed SQL out is the absent privilege. Third time this
+  reasoning has been needed (chat history, checkpoints, now this). Do not add a
+  GRANT. `evals/test_agenda_guardrails.py` is what keeps it true.
+
+* **A paused turn must be durably discoverable.** The interrupt lives in the graph
+  checkpoint and the UI rebuilds from `public.messages`, so
+  `messages.pending_approval` carries the card. Without it a reload loses the
+  decision **and** wedges the thread: the next message re-enters a thread whose
+  interrupted task is still pending, so it interrupts again, forever. The
+  checkpoint stays the authority — `/api/chat/resume` matches the `interrupt_id`
+  against live graph state and 409s on a mismatch.
+
+* **A resume re-checks identity and ownership.** It is a second entry point into
+  the same state (see 1.8). Ownership uses the strict `conversations.owned_by`,
+  never `get_or_create`, whose create-on-miss behaviour is right mid-stream and
+  wrong here — it would fork an empty thread and swallow the resume instead of
+  refusing it. 404, never 403.
+
+* **Never log a mail body.** `AuditLogger.log` redacts addresses and mobile-shaped
+  numbers from free-text fields in one place, so it cannot be forgotten per call
+  site. The regulated artefact — what was actually sent, and the verdict the rep
+  approved — lives in `agenda.outbound_log`, which is append-only by construction
+  and unreachable by the read-only role. `audit.jsonl` gets shipped to
+  aggregators; that table does not.
+
+* **A connection has three states, not two: live, stale, absent.** A grant dies
+  while its row lives — a Testing-audience token expires after 7 days, and a rep
+  can revoke access or change their password. On `invalid_grant` the credential is
+  **deleted** and `needs_reconnect_at` stamped; the row survives so Settings can
+  name which account to reconnect. A CHECK constraint makes those two facts one
+  inseparable state. `connection()` returns the row with `stale=True`, and
+  `deps.agenda_rep` leaves `email_account` None for it, so the mail tools are not
+  offered — `agenda_status` looks the state up itself and says "expired" rather
+  than "never connected", which would be a lie.
+
+  **ONLY `invalid_grant` may delete a token.** `invalid_client` means the
+  *operator's* client secret is wrong, and treating it the same way would wipe
+  every rep's credential across the deployment on the first request after a bad
+  deploy — consent cannot be restored server-side. `GoogleError.code` exists for
+  exactly this one branch, and reading it needs both of Google's error body
+  shapes: the REST APIs nest an object, the OAuth token endpoint uses a bare
+  string.
+
+* **`extra=` keys must not shadow a LogRecord attribute.** `logging` raises
+  KeyError on a collision, so `extra={"thread": …}` does not log a wrong field —
+  it *raises*. That sat inside the handler whose comment reads "one unreadable
+  thread must not lose the whole list", so the guard defeated itself.
+  `tests/test_logging_extras.py` greps for it.
+
+* **Task sections and counts are computed server-side.** Same reason as triage: the
+  panel and a chat answer must not disagree, and `check_grounding` rejects a
+  2+-digit number the model did not get from a tool. "Overdue" means the due
+  MOMENT has passed, which needs one authoritative timezone — a connected
+  account's `calendar_tz`, else `AGENDA_TIMEZONE`. `due_time` is a separate
+  nullable column, not part of a timestamp: all-day and timed are different
+  states, and null is not midnight.
+
+* **Mail search takes named fields, never a query string.** The server composes the
+  Gmail query from `from_name` / `subject_contains` / `since_days`. A free-text
+  parameter would let mail text steer the search, which is the same failure triage
+  avoids by ignoring wording. Values are quoted AND every quote stripped first —
+  the stripping is what makes the quoting sound.

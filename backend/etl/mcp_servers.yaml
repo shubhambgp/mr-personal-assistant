@@ -1,0 +1,18 @@
+# MCP servers whose tools are merged into the agent's tool list.
+# Empty today — app/tools/mcp_tools.py is a stub. See its docstring for the
+# scoping rules any entry here must satisfy.
+#
+# Intended shape:
+#
+# servers:
+#   - name: email
+#     transport: stdio
+#     command: ["npx", "-y", "@modelcontextprotocol/server-gmail"]
+#     # Which tools to expose. Allowlist, not denylist: a server adding a new
+#     # tool must not silently gain reach.
+#     allow_tools: [list_recent_messages, get_message]
+#     # The mailbox comes from the verified JWT (RepContext.email_account),
+#     # never from a tool parameter.
+#     scope: rep_mailbox
+
+servers: []

@@ -51,6 +51,15 @@ cd frontend && npm run typecheck && npm run lint && npm run build
 4. Add a unit test in `tests/`; if it has a security property, assert the
    mechanism (parameter absent, request never sent), not one example.
 
+## Recipe: add a write-capable agenda tool
+
+Build it with `_write_tool()` in `agenda_tools.py` — never hand-write the spec
+dict. Add the name to `GATED_TOOL_NAMES`, and update BOTH directions of
+`tests/test_tool_adapter.py::test_exactly_the_write_capable_tools_are_gated`
+plus a case in `tests/test_write_tools_gated.py` asserting the Google write
+never happens without approval. See security invariant 1.10 for the whole
+approval pipeline (review node, editable whitelist, service-side compliance).
+
 ## Recipe: change parsing/chunking/embedding
 
 Bump `PIPELINE_VERSION` in the ingestion path. Idempotency is keyed on

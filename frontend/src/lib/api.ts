@@ -93,6 +93,67 @@ export const api = {
 
   documents: () => request<LibraryDocument[]>('/api/documents'),
 
+  /** Everything the Agenda panel renders, in one call. No model involved. */
+  agenda: () => request<Agenda>('/api/agenda'),
+
+  googleConnection: () => request<GoogleConnection>('/api/agenda/connection'),
+
+  /** A full page load, not fetch: the server 302s to Google's consent screen,
+   *  and an XHR cannot follow a cross-origin redirect into a login flow. */
+  connectGoogleUrl: () => '/api/agenda/connect',
+
+  disconnectGoogle: () => request<void>('/api/agenda/connection', { method: 'DELETE' }),
+
+  /** The task browser. Filters go to the SERVER as query params rather than being
+   *  applied here — status 'all' is unbounded, and filtering a truncated list in
+   *  the browser reports "nothing" when it means "nothing in the first page". */
+  tasks: (filters: TaskFilters) => {
+    const q = new URLSearchParams({ status: filters.status, limit: '200' })
+    if (filters.important) q.set('important', 'true')
+    if (filters.source) q.set('source', filters.source)
+    if (filters.doctorId !== null) q.set('doctor_id', String(filters.doctorId))
+    return request<TaskList>(`/api/agenda/tasks?${q.toString()}`)
+  },
+
+  addTask: (task: {
+    title: string
+    due_date?: string | null
+    due_time?: string | null
+    important?: boolean
+    notes?: string | null
+  }) =>
+    request<AgendaTask>('/api/agenda/tasks', {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      // Only keys with a value are sent: the server's TaskCreate forbids extras
+      // and treats an omitted field differently from an explicit null.
+      body: JSON.stringify({
+        title: task.title,
+        ...(task.due_date ? { due_date: task.due_date } : {}),
+        ...(task.due_time ? { due_time: task.due_time } : {}),
+        ...(task.important ? { important: true } : {}),
+        ...(task.notes ? { notes: task.notes } : {}),
+      }),
+    }),
+
+  /** Patch a task. Send ONLY what changed — the server distinguishes an absent
+   *  field from an explicit null, so `{important: true}` cannot blank a date. */
+  patchTask: (id: string, patch: TaskPatch) =>
+    request<AgendaTask>(`/api/agenda/tasks/${id}`, {
+      method: 'PATCH',
+      headers: JSON_HEADERS,
+      body: JSON.stringify(patch),
+    }),
+
+  setTaskDone: (id: string, done: boolean) =>
+    request<AgendaTask>(`/api/agenda/tasks/${id}`, {
+      method: 'PATCH',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ done }),
+    }),
+
+  deleteTask: (id: string) => request<void>(`/api/agenda/tasks/${id}`, { method: 'DELETE' }),
+
   /** Adds one PDF or DOCX to this rep's own library. Not a chat attachment:
    *  images go to /api/chat/stream with the message, documents are ingested
    *  once and then retrievable in every later conversation. */

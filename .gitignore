@@ -49,3 +49,14 @@ __MACOSX/
 .idea/
 .vscode/
 
+# --- agenda (Google) ---
+# The Google Cloud console downloads an OAuth client as client_secret_*.json.
+# It is a credential, and it is the single most commonly committed one.
+client_secret*.json
+**/token.json
+# Anything captured from a real mailbox while developing. Never committed — same
+# rule as data/literature.local/. Committed fixtures are hand-authored.
+backend/tests/fixtures/gmail.local/
+backend/data/agenda.local/
+*.har
+

@@ -48,6 +48,42 @@ qdrant-client==1.19.0
 pypdf==6.16.1
 python-docx==1.2.0
 
+# --- agenda (Gmail + Google Calendar) ---
+# Promoted from the dev block below: httpx is now a RUNTIME dependency, because
+# the Google integration is plain REST over httpx and NOT google-api-python-client
+# or google-auth-oauthlib.
+#
+# What those would have added: google-api-python-client is discovery-document
+# driven and pulls httplib2 + uritemplate + protobuf; google-auth-oauthlib pulls
+# requests-oauthlib -> oauthlib -> requests. Five transitive packages and a second
+# HTTP stack alongside the one FastAPI already uses, both sync-first, so every
+# call would need a to_thread.
+#
+# What we actually need is three form-encoded POSTs to oauth2.googleapis.com
+# (exchange, refresh, revoke) and GETs against two documented REST endpoints.
+# CLAUDE.md §6: do not add a dependency to work around something the standard
+# library does. RFC 2822 construction is email.message.EmailMessage; base64url is
+# base64.urlsafe_b64encode; the id_token needs no signature verification because
+# we never read it — userinfo is called with the access token over TLS instead.
+#
+# httpx also buys the test story: httpx.MockTransport is how every Google call is
+# exercised in the no-network `pytest tests` job. A discovery-based client would
+# have needed a live discovery fetch or a much larger fake.
+httpx==0.28.1
+
+# Google refresh tokens are encrypted at rest with AES-256-GCM. This is the one
+# place §6 does not apply: hmac and hashlib authenticate, they do not encrypt, and
+# there is no AEAD in the standard library.
+#
+# Considered and rejected: pgcrypto's pgp_sym_encrypt, because the key would
+# travel inside SQL text and therefore into pg_stat_activity and any statement
+# log; and storing nothing at all (access-token-only, re-consent hourly), which is
+# genuinely more secure and makes "what needs my attention this morning"
+# impossible. Fernet was rejected in favour of raw AESGCM: Fernet is CBC+HMAC
+# with a timestamp we do not want, AESGCM is one primitive and a dozen lines.
+# Apache-2.0 / BSD dual-licensed, maintained by PyCA.
+cryptography==50.0.0
+
 # --- data / config ---
 pyarrow==25.0.1
 PyYAML==6.0.3
@@ -61,7 +97,8 @@ rapidfuzz==3.14.5  # fuzzy doctor-name resolution
 reportlab==5.0.1
 pytest==9.1.1
 pytest-asyncio==1.4.0
-httpx==0.28.1
+# httpx moved to the agenda block above — it is a runtime dependency now, and it
+# is still what FastAPI's TestClient uses for transport.
 ruff==0.16.4
 
 # OPTIONAL — error tracking. app/main.py enables Sentry only when SENTRY_DSN is
