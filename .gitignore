@@ -17,6 +17,10 @@ node_modules/
 dist/
 *.tsbuildinfo
 
+# --- runtime output ---
+backend/logs/
+*.log
+
 # --- never, under any circumstances ---
 # The confidential source extract this project's synthetic data stands in for
 # lives outside this repo entirely and must never enter it. These patterns are a
