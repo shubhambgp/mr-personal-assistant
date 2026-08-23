@@ -289,6 +289,63 @@ def list_documents(ctx: RepContext, limit: int = 100) -> list[dict]:
     return sorted(seen.values(), key=lambda d: (d["doc_type"] or "", d["title"] or ""))
 
 
+def document_chunks(
+    ctx: RepContext, document_id: str, *, max_chars: int = 24_000
+) -> tuple[list[dict], bool]:
+    """Every chunk of ONE document, in order. Returns (chunks, truncated).
+
+    A FETCH of a named object, not a search — which is why a `document_id`
+    condition on top of the tenancy filter does not contradict the rule in
+    `_scope_filter`. That rule exists because a model-supplied *narrowing of a
+    search* must never silently empty the result set; here an empty result is
+    the correct and only honest answer to "read document X" when X is not this
+    rep's. Tenancy is still `_scope_filter` and nothing else: the `must` below
+    combines it with the id, so a foreign document_id matches zero points.
+    """
+    client = vectors()
+    scoped = _scope_filter(ctx)
+    combined = models.Filter(
+        must=[
+            models.Filter(should=scoped.should),
+            models.FieldCondition(key="document_id", match=models.MatchValue(value=document_id)),
+        ]
+    )
+
+    collected: list[dict] = []
+    offset = None
+    while True:
+        points, offset = client.scroll(
+            COLLECTION, scroll_filter=combined, limit=256, offset=offset, with_payload=True
+        )
+        for point in points:
+            payload = point.payload or {}
+            collected.append(
+                {
+                    "ordinal": payload.get("ordinal") or 0,
+                    "section": payload.get("section"),
+                    "page_from": payload.get("page_from"),
+                    "text": payload.get("text") or "",
+                }
+            )
+        if offset is None:
+            break
+
+    collected.sort(key=lambda c: c["ordinal"])
+
+    # Bounded on purpose: a 120-page document would otherwise put its entire
+    # text into the turn's context, which is both expensive and the fastest way
+    # to push the actual question out of the model's attention.
+    kept: list[dict] = []
+    budget = max_chars
+    for chunk in collected:
+        text = str(chunk["text"])
+        if budget - len(text) < 0:
+            return kept, True
+        budget -= len(text)
+        kept.append(chunk)
+    return kept, False
+
+
 def already_ingested(content_sha256: str, pipeline_version: str) -> bool:
     """Byte-identical re-ingest is a no-op rather than a duplicate.
 

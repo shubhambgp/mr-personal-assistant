@@ -1,5 +1,5 @@
 import { memo } from 'react'
-import { AlertTriangle, Paperclip } from 'lucide-react'
+import { AlertTriangle, FileText, Paperclip } from 'lucide-react'
 
 import { Badge } from '@/components/ui'
 import type { ApprovalDecision, ChatMessage } from '@/lib/types'
@@ -52,12 +52,25 @@ function UserTurn({ message }: { message: ChatMessage }) {
                     className="size-14 rounded-lg border border-line object-cover"
                   />
                 ) : (
-                  /* A resumed conversation has the filename and nothing to
-                     render: images are never persisted server-side. This chip
-                     is the honest fallback, not a broken <img>. */
-                  <span className="flex items-center gap-1 rounded-lg bg-overlay/8 px-2 py-1 text-2xs text-fg-subtle">
-                    <Paperclip className="size-3" aria-hidden="true" />
-                    <span className="max-w-40 truncate">{file.name}</span>
+                  /* Two cases share this chip. A resumed conversation has the
+                     filename and nothing to render (images are never persisted
+                     server-side), and a document never had a preview at all —
+                     its bytes are discarded once it is ingested. Either way a
+                     chip is the honest fallback, not a broken <img>.
+
+                     The document case names the Library, because "the file went
+                     somewhere permanent" is the one thing about it the rep
+                     cannot otherwise tell from the transcript. */
+                  <span className="flex max-w-56 items-center gap-1 rounded-lg bg-overlay/8 px-2 py-1 text-2xs text-fg-subtle">
+                    {file.kind === 'document' ? (
+                      <FileText className="size-3 shrink-0" aria-hidden="true" />
+                    ) : (
+                      <Paperclip className="size-3 shrink-0" aria-hidden="true" />
+                    )}
+                    <span className="min-w-0 truncate">{file.name}</span>
+                    {file.kind === 'document' && (
+                      <span className="shrink-0 text-fg-subtle/70">· in Library</span>
+                    )}
                   </span>
                 )}
               </li>

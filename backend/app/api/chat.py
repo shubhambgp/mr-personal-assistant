@@ -102,6 +102,7 @@ async def stream_chat(
     # visible line to the rep's own message so the model knows a file arrived.
     # Without it the rep attaches a PDF, asks "what is in this?", and the model
     # answers "I don't see a PDF" — which was true, because nothing told it.
+    document_names: Annotated[list[str] | None, Form()] = None,
     conn=Depends(ro_conn),
 ) -> StreamingResponse:
     _throttle_turn(rep)
@@ -128,10 +129,23 @@ async def stream_chat(
             f"{attachments.MAX_IMAGES_PER_TURN}-image limit for one message"
         )
 
-    if not message.strip() and not collected:
+    if not message.strip() and not collected and not document_names:
         async def empty() -> AsyncIterator[str]:
             yield _sse({"type": "error", "message": "Send a message or attach an image."})
         return StreamingResponse(empty(), media_type="text/event-stream")
+
+    # Appended to the rep's own text rather than smuggled into the system prompt:
+    # it is visible in the transcript, persists with the turn, and so a reloaded
+    # conversation still explains why the assistant read a document. The names
+    # are truncated and newline-stripped so a crafted filename cannot forge
+    # extra lines of "context".
+    if document_names:
+        named = ", ".join(n.replace("\n", " ").strip()[:120] for n in document_names[:5] if n.strip())
+        if named:
+            message = (
+                f"{message}\n\n(Just added to my library: {named} — "
+                f"use read_document to read it.)"
+            ).strip()
 
     generator = _run(
         request=request,

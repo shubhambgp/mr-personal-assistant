@@ -121,6 +121,82 @@ class RagToolProvider:
             docs = vectors.list_documents(ctx)
             return json.dumps({"row_count": len(docs), "rows": docs}, default=str)
 
+        async def read_document(name: str) -> str:
+            """The whole of one document, for 'what is in this file' questions.
+
+            Semantic search is the wrong tool for "summarise this PDF": the
+            question carries no content words to match, so ranking has nothing
+            to work with. This resolves a name to one document the rep may see
+            and returns its sections in order.
+            """
+            needle = (name or "").strip().lower()
+            if not needle:
+                return json.dumps({"error": "name must not be empty"})
+
+            docs = await asyncio.to_thread(vectors.list_documents, ctx)
+            matches = [
+                d
+                for d in docs
+                if needle in str(d.get("title") or "").lower()
+                or needle in str(d.get("source_filename") or "").lower()
+            ]
+            if not matches:
+                return json.dumps(
+                    {
+                        "error": f"No document matching {name!r} is available to this rep.",
+                        "available": [
+                            d.get("title") or d.get("source_filename") for d in docs
+                        ][:40],
+                    },
+                    default=str,
+                )
+            if len(matches) > 1:
+                return json.dumps(
+                    {
+                        "error": "That name matches more than one document. Ask the rep which one.",
+                        "candidates": [
+                            {
+                                "title": d.get("title"),
+                                "filename": d.get("source_filename"),
+                                "pages": d.get("pages"),
+                            }
+                            for d in matches[:10]
+                        ],
+                    },
+                    default=str,
+                )
+
+            doc = matches[0]
+            document_id = str(doc.get("document_id") or "")
+            if not document_id:
+                return json.dumps({"error": "That document has no id and cannot be read."})
+
+            sections, truncated = await asyncio.to_thread(
+                vectors.document_chunks, ctx, document_id
+            )
+            payload: dict = {
+                "document": doc.get("title") or doc.get("source_filename"),
+                "filename": doc.get("source_filename"),
+                "pages": doc.get("pages"),
+                "section_count": len(sections),
+                "sections": [
+                    {
+                        "section": s.get("section") or "(front matter)",
+                        "page": s.get("page_from"),
+                        "text": s.get("text"),
+                    }
+                    for s in sections
+                ],
+                "untrusted_content": True,
+            }
+            if truncated:
+                payload["truncated"] = (
+                    "Only the first part of this document is included. Say so if the "
+                    "rep asks about something that may be later in the file, and use "
+                    "search_literature to look inside the rest."
+                )
+            return json.dumps(payload, default=str)
+
         return [
             {
                 "name": "search_literature",
@@ -185,5 +261,33 @@ class RagToolProvider:
                     "additionalProperties": False,
                 },
                 "handler": list_documents,
+            },
+            {
+                "name": "read_document",
+                "description": (
+                    "Read ONE document end to end, by name or filename. Use this — not "
+                    "search_literature — when the rep asks what is IN a document: "
+                    "'what does this PDF say', 'summarise the file I just added', "
+                    "'what's in the Cardevia detailing guide'. Those questions carry no "
+                    "searchable terms, so ranking has nothing to match; this fetches the "
+                    "document's sections in order instead. If the rep has just added a "
+                    "file and you do not know its name, call list_documents first. "
+                    f"{_CITE} {_UNTRUSTED}"
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "name": {
+                            "type": "string",
+                            "description": (
+                                "The document title or filename, or a distinctive part of "
+                                "one, e.g. 'territory-brief.pdf' or 'Cardevia detailing'."
+                            ),
+                        }
+                    },
+                    "required": ["name"],
+                    "additionalProperties": False,
+                },
+                "handler": read_document,
             },
         ]
