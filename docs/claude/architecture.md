@@ -74,3 +74,15 @@ Two pairs that must stay in sync, and neither has a compiler to catch it:
   matcher compares its Python normalisation against the value the ETL stored. If
   you change one, change both.
 
+## Database schemas, and why there are four
+
+| Schema | Contents | Reachable by `qorvexa_ro`? |
+|---|---|---|
+| `app` | manifest-driven business data (dropped + reloaded by ETL) | yes — SELECT only |
+| `public` | conversations + messages (chat history) | **no** |
+| `agent` | LangGraph checkpoints | **no** |
+| `agenda` | Google connections, tasks, outbound log | **no** |
+
+`app` auto-grants SELECT to the read-only role via `ALTER DEFAULT PRIVILEGES`
+and is dropped on every ETL load — which is exactly why nothing sensitive may
+ever live there. See ENGINEERING_LOG 15 and 20.
