@@ -166,3 +166,36 @@ converts `ToolSpec` to `StructuredTool` downstream of that check. Do not
 invariant is the whole security model, and re-expressing it inside someone
 else's abstraction is how such things get quietly lost.
 
+## 1.9 Retrieval: one filter, and it only does tenancy
+
+The document corpus lives in **Qdrant and nowhere else** — vectors, text and
+metadata together. Postgres is deliberately not in this path (no dual-write, no
+orphaned vectors on delete), which means **there is no SQL backstop**. The payload
+filter is the entire tenancy boundary.
+
+* **`vectors._scope_filter()` is the only filter this codebase builds**, and it
+  expresses exactly one thing: `scope = 'global' OR chair_id = <this rep>`.
+* **`vectors.search()` takes a `RepContext`, never a filter.** There is no
+  parameter through which a caller — or a tool argument the model composed — can
+  supply, widen or replace the predicate. `tests/test_rag_scope.py` asserts the
+  absence of such a parameter, because the absence *is* the security property.
+* **Nothing else is filtered, and that is deliberate.** brand, molecule and
+  doc_type were `must` conditions and each one silently excluded the document
+  that answered the question: an unknown brand has a null payload brand, and a
+  file inferred as `brief` is excluded by `doc_type="monograph"`. The model got
+  "no results" while retrieval was working perfectly. **A model-supplied
+  narrowing may steer ranking; it must never be able to empty the result set.**
+  Hints are folded into the query text instead.
+* **Assert absence from the raw tool output, not from the prose.** A guard that
+  only stops the model *mentioning* another rep's document has still put that
+  text into the transcript, the audit log and the UI.
+* **Retrieved text is untrusted.** A PDF — especially one a rep uploaded — can
+  contain "ignore previous instructions". The instruction to treat results as
+  data lives in the *tool description*, i.e. in the prompt, where a document
+  cannot reach it. Never move that into the payload alone.
+
+Ingestion is idempotent on `content_sha256` **and** `PIPELINE_VERSION`. Bump the
+version whenever parsing, chunking or the contextual header changes shape —
+otherwise a pipeline change leaves every existing document silently stale,
+because the file has not changed so ingestion skips it.
+

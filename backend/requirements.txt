@@ -24,6 +24,30 @@ langgraph==1.2.11
 langgraph-checkpoint-postgres==3.1.2
 langchain-openai==1.6.0
 
+# --- retrieval (RAG) ---
+# Qdrant is the ONLY store for the document corpus: vectors, text and metadata.
+# Postgres is deliberately not involved — a second store would mean dual-write
+# and orphaned vectors on delete.
+#
+# No server and no Docker required in dev or CI: qdrant-client runs the real
+# engine in-process (path= for on-disk, :memory: for tests), and QDRANT_URL
+# points at a real server in production. Same API for all three.
+#
+# NOT fastembed: its BM25 model is purely lexical, yet the package pulls 66 MB
+# of onnxruntime that the model never uses. Qdrant's Modifier.IDF computes IDF
+# server-side, so app/services/vectors.py sends term frequencies from a small
+# tokeniser used identically at ingest and query time.
+qdrant-client==1.19.0
+
+# --- documents (RAG ingestion) ---
+# pypdf, not PyMuPDF/fitz: fitz extracts better and faster but is AGPL-3.0,
+# which is a bad licence to ship in code handed to a company. pypdf is BSD-3 and
+# pure Python, so it also keeps the "no new infrastructure" property. Its known
+# weakness is tables — see etl/docs_parse.py for how that is measured rather
+# than assumed, and pdfplumber (MIT) named as the escalation.
+pypdf==6.16.1
+python-docx==1.2.0
+
 # --- data / config ---
 pyarrow==25.0.1
 PyYAML==6.0.3

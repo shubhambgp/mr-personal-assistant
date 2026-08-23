@@ -1,0 +1,11 @@
+# SHA-256 of forbidden vendor identifiers (lowercased).
+#
+# Hashed deliberately: a plaintext denylist in a public repository publishes
+# the very name it exists to exclude. See etl/check_no_vendor_terms.py.
+#
+# To add a term:  printf "newterm" | sha256sum
+
+152708109328238e89476e7d4e5d4f2cb12acb0cd834ef115b7131937eeaef5a
+627e041f0d0ebc773e1ac36670416380d94f2a8e63074d618669cb1b80201b18
+c9c54ff132a449a4cffc5a6af6caec4db6e57ca49d2a78bb22f403b38f5a61d9
+d79b0d1ba25296dca113477418165835410ee5b088f22b4f59d65e8d7741fd40

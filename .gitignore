@@ -17,6 +17,19 @@ node_modules/
 dist/
 *.tsbuildinfo
 
+# --- retrieval ---
+# The local Qdrant store is a build artefact: it is rebuilt by
+# `python -m etl.ingest_docs data/literature --scope global`. The embeddings it
+# would contain ARE committed, as evals/rag_corpus_vectors.npz, so the rebuild
+# needs no API key.
+qdrant_data/
+backend/qdrant_data/
+
+# A rep's own documents stay local. Ingest them with
+#   python -m etl.ingest_docs data/literature.local --scope chair --chair-id <id>
+# and they never enter the repository.
+backend/data/literature.local/
+
 # --- runtime output ---
 backend/logs/
 *.log

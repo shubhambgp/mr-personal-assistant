@@ -51,3 +51,9 @@ cd frontend && npm run typecheck && npm run lint && npm run build
 4. Add a unit test in `tests/`; if it has a security property, assert the
    mechanism (parameter absent, request never sent), not one example.
 
+## Recipe: change parsing/chunking/embedding
+
+Bump `PIPELINE_VERSION` in the ingestion path. Idempotency is keyed on
+`content_sha256` AND the version — without the bump, existing documents are
+silently skipped and stay stale. Then re-run the retrieval eval
+(`python -m evals.run_rag_eval`) and compare recall@5 / MRR.

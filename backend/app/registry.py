@@ -9,11 +9,13 @@ from __future__ import annotations
 
 from .tools.base import ToolRegistry
 from .tools.mcp_tools import McpToolProvider
+from .tools.rag_tools import RagToolProvider
 from .tools.sql_tools import SqlToolProvider
 
 registry = ToolRegistry(
     [
         SqlToolProvider(),
+        RagToolProvider(),
         McpToolProvider(),  # still the empty seam — see the module docstring
     ]
 )
