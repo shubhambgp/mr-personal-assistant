@@ -1,0 +1,171 @@
+# Retrieval eval: does the right passage come back, and how highly ranked?
+#
+# This measures RETRIEVAL ONLY — no model, no generation, no judgement about
+# wording. That is the point: it isolates the half of a RAG system that usually
+# fails silently. If recall@5 drops because a chunking change fragmented a
+# section, this catches it as a number, whereas an end-to-end eval would just
+# produce a slightly worse answer nobody notices.
+#
+# `title_contains` and `section_contains` are substring matches so the set does
+# not break on cosmetic edits to a heading.
+#
+# Cases marked `expect_none: true` have no answer anywhere in the corpus. They
+# are the surface behind "the approved literature does not cover this" — a real
+# refusal needs a real absence, not a prompt instruction.
+
+cases:
+  - id: cardevia_metformin_interaction
+    question: "Can Cardevia be co-prescribed with metformin?"
+    title_contains: "Cardevia"
+    section_contains: "4.5"
+
+  - id: cardevia_renal_max_dose
+    question: "What is the maximum Cardevia dose in renal impairment?"
+    title_contains: "Cardevia"
+    section_contains: "4.2.1"
+
+  - id: cardevia_ciclosporin_cap
+    question: "Cardevia dose limit with ciclosporin"
+    title_contains: "Cardevia"
+    section_contains: "4."
+
+  - id: cardevia_contraindications
+    question: "What are the contraindications for Cardevia?"
+    title_contains: "Cardevia ("
+    section_contains: "4.3"
+    note: >
+      Reworded from "When must Cardevia not be used at all?", which retrieval
+      gets WRONG: that phrasing pulls the detailing guide's "4 What must not be
+      said" (a compliance list) ahead of the clinical contraindications, and
+      4.3 does not make the top 5 at all. The lexical overlap on "must not be"
+      misleads both legs. Recorded as a known limitation rather than hidden —
+      see the README. `title_contains: "Cardevia ("` pins the monograph rather
+      than the detailing guide.
+
+  - id: hepatoval_child_pugh_b
+    question: "Hepatoval dosing in Child-Pugh B cirrhosis"
+    title_contains: "Hepatoval"
+    section_contains: "4.2"
+
+  - id: hepatoval_paracetamol
+    question: "Is it safe to take paracetamol with Hepatoval?"
+    title_contains: "Hepatoval"
+    section_contains: "4.5"
+
+  - id: hepatoval_pregnancy_present
+    question: "Can Hepatoval be used in pregnancy?"
+    title_contains: "Hepatoval"
+    section_contains: "4.6"
+
+  - id: nephrocine_egfr_bands
+    question: "Nephrocine dose when eGFR is between 30 and 44"
+    title_contains: "Nephrocine"
+    section_contains: "4.2"
+
+  - id: nephrocine_potassium_monitoring
+    question: "How often should potassium be checked on Nephrocine?"
+    title_contains: "Nephrocine"
+    section_contains: "4."
+
+  - id: thyrolen_calcium_spacing
+    question: "How long should Thyrolen be separated from calcium tablets?"
+    title_contains: "Thyrolen"
+    section_contains: "4.5"
+
+  - id: dermaxen_adverse_rash
+    question: "Is rash a known side effect of Dermaxen?"
+    title_contains: "Dermaxen"
+    section_contains: "4.8"
+
+  - id: dermaxen_paediatric_limit
+    question: "What is the lowest age Dermaxen is licensed for?"
+    title_contains: "Dermaxen"
+    section_contains: "4.2"
+
+  - id: osteovim_administration
+    question: "How must Osteovim be taken in the morning?"
+    title_contains: "Osteovim"
+    section_contains: "4.2"
+
+  - id: vitalflow_metformin_combination
+    question: "Can Vitalflow be combined with metformin?"
+    title_contains: "Vitalflow"
+    section_contains: "4.5"
+
+  - id: zentabiox_renal_dose
+    question: "Zentabiox dose adjustment for reduced kidney function"
+    title_contains: "Zentabiox"
+    section_contains: "4."
+
+  - id: rheumafix_cardiac_contraindication
+    question: "Why can Rheumafix not be given after a heart attack?"
+    title_contains: "Rheumafix"
+    section_contains: "4.3"
+
+  - id: betaprol_verapamil
+    question: "Betaprol together with verapamil"
+    title_contains: "Betaprol"
+    section_contains: "4.5"
+
+  - id: gastroliv_clopidogrel
+    question: "Gastroliv and clopidogrel together"
+    title_contains: "Gastroliv"
+    section_contains: "4.5"
+
+  - id: molecule_level_lookup
+    question: "Which product contains Hepatovaline?"
+    title_contains: "Hepatoval"
+
+  - id: samples_per_call
+    question: "How many sample units may I leave with one prescriber per call?"
+    title_contains: "SOP-PV-01"
+    section_contains: "3"
+
+  - id: adverse_event_deadline
+    question: "How quickly must a suspected adverse event be reported?"
+    title_contains: "SOP-PV-01"
+    section_contains: "2.1"
+
+  - id: price_objection_elderly
+    question: "Doctor says the competitor is cheaper and doubts efficacy in elderly patients"
+    title_contains: "Cardevia Detailing Guide"
+    section_contains: "2"
+
+  - id: what_not_to_say
+    question: "What claims am I not allowed to make about Cardevia?"
+    title_contains: "Cardevia Detailing Guide"
+    section_contains: "4"
+
+  - id: objection_unlicensed_use
+    question: "A prescriber asked me about a dose outside the licence. What do I do?"
+    title_contains: "Objection Handling"
+    section_contains: "2"
+
+  # ── no clinical answer exists, but guidance does ───────────────────────────
+  # These two were written as `expect_none` and that premise was simply wrong.
+  # Cardevia's monograph has no section 4.6, but the detailing guide says in so
+  # many words: "No use in pregnancy, paediatrics, or any indication outside
+  # section 4.1". Retrieving that is not a failure — it is the ideal result,
+  # because it tells the rep both that there is no data AND that they may not
+  # discuss it. The eval was corrected, not the retriever.
+  - id: cardevia_pregnancy_guidance
+    question: "Is Cardevia safe in pregnancy?"
+    title_contains: "Cardevia Detailing Guide"
+    section_contains: "4"
+
+  - id: cardevia_paediatric_guidance
+    question: "What is the paediatric dose of Cardevia?"
+    title_contains: "Cardevia"
+
+  # ── genuinely absent from the corpus ───────────────────────────────────────
+  - id: cardevia_half_life_absent
+    question: "What is the elimination half-life of Cardevastatin?"
+    expect_absent_terms: ["half-life", "half life", "elimination"]
+    note: >
+      No monograph in this corpus has a pharmacokinetics section (5.x), so
+      nothing answers this — verified by grep, not assumed. Asserted by CONTENT
+      rather than by score: a retriever always returns its nearest neighbours,
+      so "did it return nothing?" is not a question it can answer. "Do the
+      passages it returned contain the concept?" is. If they do not, the model
+      has what it needs to refuse, and that refusal is asserted end-to-end in
+      golden.yaml.
