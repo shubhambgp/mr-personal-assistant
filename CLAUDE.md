@@ -16,6 +16,7 @@ silently break.
 @docs/claude/architecture.md
 @docs/claude/backend.md
 @docs/claude/frontend.md
+@docs/claude/testing.md
 @docs/claude/skills.md
 
 ## The five rules that outrank everything else
