@@ -4,7 +4,7 @@
 // thing should not have to wait out the answer.
 
 import { useEffect, useRef, useState } from 'react'
-import { ArrowUp, Loader2, Paperclip, Square } from 'lucide-react'
+import { ArrowUp, Loader2, Mic, Paperclip, Square } from 'lucide-react'
 
 import { IconButton } from '@/components/ui'
 import { api, ApiError } from '@/lib/api'
@@ -13,6 +13,8 @@ import { CONTENT_COL } from '@/lib/format'
 import type { IngestedDocument } from '@/lib/types'
 
 import { AttachmentTray } from './AttachmentTray'
+import { useVoiceInput } from './useVoiceInput'
+import { VoiceLevels } from './VoiceLevels'
 
 /** A composer pick that is a document, not an image. Documents are routed to
  *  the Library (POST /api/documents — a permanent, per-rep ingest) before the
@@ -49,6 +51,24 @@ export function Composer({ onSend, onStop, streaming, disabled }: Props) {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
+  // What was typed before dictation began. Recognition rebuilds its transcript
+  // on every revision, so the composer value is always base + final + interim —
+  // never appended, or every revised phrase would duplicate.
+  const dictationBaseRef = useRef('')
+  const voice = useVoiceInput((finalText, interim) => {
+    setValue(dictationBaseRef.current + finalText + interim)
+  })
+
+  const toggleDictation = () => {
+    if (voice.listening) {
+      voice.stop()
+      return
+    }
+    const current = value.replace(/\s+$/, '')
+    dictationBaseRef.current = current ? `${current} ` : ''
+    voice.start()
+  }
+
   useEffect(() => {
     const node = textareaRef.current
     if (!node) return
@@ -64,6 +84,7 @@ export function Composer({ onSend, onStop, streaming, disabled }: Props) {
 
   const submit = async () => {
     if (!canSend) return
+    if (voice.listening) voice.stop()
     setUploadError(null)
     setUploadNote(null)
 
@@ -132,6 +153,11 @@ export function Composer({ onSend, onStop, streaming, disabled }: Props) {
               {uploadError}
             </p>
           )}
+          {voice.error && (
+            <p role="alert" className="animate-rise mb-1 rounded-lg bg-danger/12 px-2 py-1.5 text-2xs text-danger">
+              {voice.error}
+            </p>
+          )}
           {uploadNote && (
             <p role="status" className="animate-rise mb-1 rounded-lg bg-success/12 px-2 py-1.5 text-2xs text-success">
               {uploadNote}
@@ -157,7 +183,9 @@ export function Composer({ onSend, onStop, streaming, disabled }: Props) {
             placeholder={
               streaming
                 ? 'Answering… press Stop to interrupt'
-                : 'Ask about your doctors, visits, or targets…'
+                : voice.listening
+                  ? 'Listening… speak, and your words appear here'
+                  : 'Ask about your doctors, visits, or targets…'
             }
             className={cx(
               'w-full resize-none bg-transparent px-1.5 py-1 text-sm text-fg outline-none',
@@ -200,6 +228,29 @@ export function Composer({ onSend, onStop, streaming, disabled }: Props) {
                 <Paperclip className="size-4" aria-hidden="true" />
               </IconButton>
 
+              {/* Dictation. Hidden entirely where the browser has no speech
+                  recognition — a mic that cannot work is worse than no mic. */}
+              {voice.supported && (
+                <>
+                  <IconButton
+                    label={voice.listening ? 'Stop dictation' : 'Dictate your message'}
+                    variant={voice.listening ? 'accent' : 'ghost'}
+                    onClick={toggleDictation}
+                    disabled={disabled}
+                    aria-pressed={voice.listening}
+                  >
+                    <Mic className="size-4" aria-hidden="true" />
+                  </IconButton>
+                  {voice.listening && (
+                    <>
+                      <VoiceLevels analyserRef={voice.analyserRef} />
+                      <span role="status" className="sr-only">
+                        Listening — speak now.
+                      </span>
+                    </>
+                  )}
+                </>
+              )}
             </div>
 
             {streaming ? (

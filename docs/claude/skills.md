@@ -60,6 +60,13 @@ plus a case in `tests/test_write_tools_gated.py` asserting the Google write
 never happens without approval. See security invariant 1.10 for the whole
 approval pipeline (review node, editable whitelist, service-side compliance).
 
+## Recipe: add a new frontend surface
+
+Create `features/<name>/` with its components and hooks together. Use tokens
+from `styles/theme.css` only, no `dark:` variants, `cx` for class merging. If
+it consumes a new SSE event, add the case to the union in `lib/types.ts` first
+and let the compiler find the render sites.
+
 ## Recipe: change parsing/chunking/embedding
 
 Bump `PIPELINE_VERSION` in the ingestion path. Idempotency is keyed on

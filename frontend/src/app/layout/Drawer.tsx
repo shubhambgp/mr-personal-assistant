@@ -113,7 +113,17 @@ export function Drawer({
           // not animated — lg:transition-none exists because a width transition
           // reflows the chat grid mid-animation.
           //
-          'lg:static lg:z-auto lg:max-w-none lg:translate-x-0 lg:transition-none',
+          // lg:z-30 is load-bearing and has no visual signature until a popover
+          // opens. `lg:translate-x-0` is a transform, and a transform creates a
+          // stacking context — so the Settings drop-up's own z-20 is trapped
+          // INSIDE this panel. With z-auto the panel then painted in DOM order
+          // against the main column, whose composer carries `backdrop-blur-sm`
+          // (also a stacking context) and comes later — so the menu rendered
+          // BEHIND the input area. Visible only when collapsed, because the
+          // 224px menu only overhangs the main column from a 56px rail.
+          // z-index applies here despite `static`: a flex item with z-index
+          // other than auto creates a stacking context (CSS Flexbox §5.4).
+          'lg:static lg:z-30 lg:max-w-none lg:translate-x-0 lg:transition-none',
           collapsed ? 'lg:w-14' : 'lg:w-72',
         )}
       >
