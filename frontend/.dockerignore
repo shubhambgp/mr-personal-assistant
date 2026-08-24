@@ -1,0 +1,15 @@
+# Critical: without this, `COPY . .` overlays the host's node_modules/ and dist/
+# onto the freshly `npm ci`-installed tree, making builds nondeterministic.
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Editor / OS noise.
+.DS_Store
+.idea/
+.vscode/
+
+# Never ship a local env into the web image.
+.env
+.env.*
+!.env.example

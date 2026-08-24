@@ -1,0 +1,107 @@
+# Local stack: Postgres + API + web.
+#
+#   ./setup.sh          # does everything below in order, with a generated secret
+#
+# or by hand:
+#   cp .env.example .env   # this file's own template — fill in JWT_SECRET
+#                          # and OPENAI_API_KEY. backend/.env is NOT read here.
+#   docker compose up -d --build db
+#   docker compose run --rm backend python -m etl.ingest_docs data/literature \
+#       --scope global --embeddings-from evals/rag_corpus_vectors.npz
+#   docker compose up -d --build backend web
+#   open http://localhost:8080
+
+services:
+  db:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: qorvexa
+      # Defaults keep `docker compose up` working with no .env, which is the
+      # point of the demo. Override BOTH in a real deployment — and note the
+      # database is not published to the host, so these are reachable only from
+      # inside the compose network.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-qorvexa}
+      # Read by backend/etl/seed_app.sql, which creates the read-only role the
+      # agent's SQL runs as. It must match DATABASE_URL_RO below.
+      RO_PASSWORD: ${RO_PASSWORD:-qorvexa_ro}
+      POSTGRES_DB: qorvexa
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Applied in order on first init only. All four schemas are mounted so a
+      # fresh volume comes up complete — previously only chat_history was, so the
+      # graph checkpointer and the agenda tables were silently missing until
+      # applied by hand.
+      #
+      # 05 is the dataset itself, and it runs first because it creates the
+      # `qorvexa_ro` role the whole tool layer connects as. The other three are
+      # DDL only: chat history, checkpoints and the agenda start empty.
+      - ./backend/etl/seed_app.sql:/docker-entrypoint-initdb.d/05-app.sql:ro
+      - ./backend/etl/chat_history.sql:/docker-entrypoint-initdb.d/10-chat-history.sql:ro
+      - ./backend/etl/agent_schema.sql:/docker-entrypoint-initdb.d/20-agent.sql:ro
+      - ./backend/etl/agenda_schema.sql:/docker-entrypoint-initdb.d/30-agenda.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U qorvexa -d qorvexa"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    ports:
+      - "5433:5432"    # 5433 on the host, so a local Postgres on 5432 still works
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://qorvexa:${POSTGRES_PASSWORD:-qorvexa}@db:5432/qorvexa?options=-csearch_path%3Dapp,public
+      DATABASE_URL_RO: postgresql://qorvexa_ro:${RO_PASSWORD:-qorvexa_ro}@db:5432/qorvexa?options=-csearch_path%3Dapp,public
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in your shell or a .env beside this file}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      CORS_ORIGINS: http://localhost:8080
+      ENVIRONMENT: docker
+      # The agenda's OAuth client. These MUST be forwarded explicitly: .env is
+      # excluded by .dockerignore (deliberately — secrets do not belong in an
+      # image layer), so without these lines backend/.env is invisible to the
+      # container and Gmail/Calendar could never be configured under Docker at
+      # all. Empty is fine: the app then offers tasks only.
+      #
+      # Set them in your shell or in a `.env` beside this file. Note the
+      # redirect defaults to :8080 here, not :8000 — under Docker the browser
+      # talks to nginx, and the URI must match the Google console exactly.
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-http://localhost:8080/api/agenda/callback}
+      AGENDA_ENCRYPTION_KEY: ${AGENDA_ENCRYPTION_KEY:-}
+      AGENDA_GMAIL_SCOPE: ${AGENDA_GMAIL_SCOPE:-readonly}
+      # A slim image has no /etc/localtime, so the container is UTC unless told
+      # otherwise — and "overdue" is judged in this zone for any rep with no
+      # Google account connected.
+      TZ: ${TZ:-UTC}
+    # The image ships a HEALTHCHECK; expose it so `web` can wait on readiness.
+    ports:
+      - "8000:8000"
+    volumes:
+      # The local-mode Qdrant store, shared between the running backend and the
+      # one-off `docker compose run backend python -m etl.ingest_docs ...` that
+      # loads the corpus — without this the ingest lands in a throwaway
+      # container layer and the app starts with an empty library. Ingest while
+      # the backend is STOPPED: local-mode Qdrant holds an exclusive folder lock.
+      - qdrantdata:/app/qdrant_data
+      # The append-only compliance audit log must survive container replacement.
+      - auditlogs:/app/logs
+
+  web:
+    build: ./frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "8080:80"
+
+volumes:
+  pgdata:
+  qdrantdata:
+  auditlogs:

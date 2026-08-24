@@ -1,0 +1,25 @@
+# Keep the build context small and deterministic. Without this, COPY drags in
+# local caches and (worse) any secret or captured data sitting in the tree.
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Build artefacts and runtime output — rebuilt in the image / at runtime.
+qdrant_data/
+logs/
+*.log
+
+# Never ship secrets or local captures into an image layer.
+.env
+.env.*
+!.env.example
+client_secret*.json
+**/token.json
+data/literature.local/
+data/agenda.local/
+tests/fixtures/gmail.local/
+*.har

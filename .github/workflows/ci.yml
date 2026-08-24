@@ -1,0 +1,239 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        # Must match the local version: the loader uses pg_input_is_valid (16+)
+        # as its TRY_CAST equivalent.
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: qorvexa
+          POSTGRES_PASSWORD: qorvexa
+          POSTGRES_DB: qorvexa
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U qorvexa -d qorvexa"
+          --health-interval 5s --health-timeout 3s --health-retries 15
+
+    env:
+      DATABASE_URL: postgresql://qorvexa:qorvexa@127.0.0.1:5432/qorvexa?options=-csearch_path%3Dapp,public
+      DATABASE_URL_RO: postgresql://qorvexa_ro:qorvexa_ro@127.0.0.1:5432/qorvexa?options=-csearch_path%3Dapp,public
+      JWT_SECRET: ci-secret-that-is-definitely-at-least-32-chars
+      OPENAI_API_KEY: ci-placeholder
+
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install
+        run: pip install -r requirements.txt
+
+      - name: Lint
+        run: ruff check .
+
+      - name: Unit tests (no database)
+        run: python -m pytest tests -q
+
+      # seed_app.sql, not `python -m etl.load_postgres`: the parquet sources are
+      # no longer in the repository, and this file carries the qorvexa_ro role
+      # and its column-level grants as well as the rows.
+      - name: Load the synthetic dataset
+        run: psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f etl/seed_app.sql
+
+      - name: Apply the chat-history schema
+        run: psql "$DATABASE_URL" -f etl/chat_history.sql
+
+      # The LangGraph checkpointer's tables are created unqualified, so they
+      # land wherever search_path points. This schema (plus a pinned
+      # search_path in app/bot/checkpointer.py) is what keeps them out of `app`,
+      # which the loader drops and which auto-grants SELECT to the read-only
+      # role. See ENGINEERING_LOG 15.
+      - name: Apply the agent (checkpoint) schema
+        run: psql "$DATABASE_URL" -f etl/agent_schema.sql
+
+      - name: Apply the agenda schema
+        # Google connections, the rep's own tasks, and the outbound compliance
+        # log. Its own schema for the same reason the checkpoints have one: `app`
+        # is dropped on every ETL load AND auto-grants SELECT to the read-only
+        # role the agent queries as. A refresh token must not live anywhere
+        # model-composed SQL can reach. See ENGINEERING_LOG 15 and 20.
+        #
+        # Applied TWICE on purpose. The file mixes CREATE ... IF NOT EXISTS with
+        # ALTER ... ADD COLUMN IF NOT EXISTS so it upgrades an existing database
+        # in place, and re-runnability is the property that makes that safe.
+        # ON_ERROR_STOP turns a non-idempotent statement into a red build: the
+        # first version of this had the new index above the ALTER that adds its
+        # column, so one run dropped the index and failed to recreate it.
+        run: |
+          psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f etl/agenda_schema.sql
+          psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f etl/agenda_schema.sql
+
+      - name: Guardrail tests (against the loaded database)
+        run: python -m pytest evals/test_guardrails.py -q
+
+      - name: Verify the dataset is de-branded and disjoint
+        run: python -m etl.verify_data
+
+      # Retrieval quality as a NUMBER, on every pull request — and with no API
+      # key, which is the point. Both the corpus embeddings
+      # (evals/rag_corpus_vectors.npz, float16, 509 KB) and the golden query
+      # embeddings (evals/rag_query_vectors.npz) are committed, so the real
+      # hybrid path runs offline, including from a fork. A chunking or ranking
+      # regression then shows up as recall@5 dropping, rather than as a slightly
+      # worse answer nobody reads.
+      - name: Ingest the literature corpus (from the committed vectors)
+        run: >-
+          python -m etl.ingest_docs data/literature --scope global
+          --embeddings-from evals/rag_corpus_vectors.npz
+
+      - name: Retrieval eval (recall@5 / MRR)
+        run: python -m evals.run_rag_eval
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      # Catches what the build cannot: Tailwind emits nothing for a class it
+      # does not recognise and never warns, which is how `brand-950` survived
+      # four references and a green CI run.
+      - run: npm run lint
+      - run: npm run build
+
+  docker-build:
+    # CI is green while `docker compose up --build` is broken on main unless the
+    # images are actually built here. Build only — no run — so it stays fast.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build the backend image
+        run: docker build -t qorvexa-backend ./backend
+      - name: Build the web image
+        run: docker build -t qorvexa-web ./frontend
+
+  dependency-audit:
+    # CVE signal on the pinned dependencies. Non-blocking: a freshly disclosed
+    # advisory should surface here, not wedge every unrelated PR. Review the
+    # annotations and bump deliberately.
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: pip-audit (backend)
+        run: |
+          pip install pip-audit
+          pip-audit -r backend/requirements.txt || true
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+      - name: npm audit (frontend, prod deps)
+        working-directory: frontend
+        run: npm audit --omit=dev || true
+
+  confidentiality:
+    # Cheap, fast, and the most important job here: proves no vendor name or
+    # confidential artefact reached the repo.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: No confidential vendor identifier anywhere in the tree
+        # Compares hashes, not plaintext — see etl/check_no_vendor_terms.py for
+        # why the check itself must not name what it is looking for.
+        run: python backend/etl/check_no_vendor_terms.py .
+      - name: No confidential artefacts
+        run: |
+          found=$(find . -path ./.git -prune -o \
+            \( -name '*.duckdb' -o -name 'audit.jsonl' -o -name 'raw.zip' \) -print)
+          if [ -n "$found" ]; then
+            echo "::error::Confidential artefact present: $found"
+            exit 1
+          fi
+          echo "clean"
+      - name: No oversized files
+        run: |
+          big=$(find . -path ./.git -prune -o -type f -size +2M -print \
+                 | grep -v package-lock.json || true)
+          if [ -n "$big" ]; then
+            echo "::warning::Large files: $big"
+          fi
+
+  llm-eval:
+    # Only runs where the secret exists (i.e. not on forks), so a PR is never
+    # blocked by a missing key — but the gate still guards main.
+    runs-on: ubuntu-latest
+    needs: backend
+    if: github.event_name == 'push'
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: qorvexa
+          POSTGRES_PASSWORD: qorvexa
+          POSTGRES_DB: qorvexa
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U qorvexa -d qorvexa"
+          --health-interval 5s --health-timeout 3s --health-retries 15
+    env:
+      DATABASE_URL: postgresql://qorvexa:qorvexa@127.0.0.1:5432/qorvexa?options=-csearch_path%3Dapp,public
+      DATABASE_URL_RO: postgresql://qorvexa_ro:qorvexa_ro@127.0.0.1:5432/qorvexa?options=-csearch_path%3Dapp,public
+      JWT_SECRET: ci-secret-that-is-definitely-at-least-32-chars
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - run: pip install -r requirements.txt
+      - if: env.OPENAI_API_KEY == ''
+        run: echo "No OPENAI_API_KEY configured — skipping the LLM eval gate."
+      - if: env.OPENAI_API_KEY != ''
+        run: psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f etl/seed_app.sql
+      - if: env.OPENAI_API_KEY != ''
+        run: |
+          psql "$DATABASE_URL" -f etl/chat_history.sql
+          psql "$DATABASE_URL" -f etl/agent_schema.sql
+          psql "$DATABASE_URL" -f etl/agenda_schema.sql
+      - if: env.OPENAI_API_KEY != ''
+        run: python -m evals.run_eval

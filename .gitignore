@@ -60,3 +60,18 @@ backend/tests/fixtures/gmail.local/
 backend/data/agenda.local/
 *.har
 
+# --- not part of the project ---
+# Local scratch: superseded docs, the stray root npm install, and the internal
+# audit write-ups. See _unused/README.md for why the audit docs stay out of a
+# PUBLIC repository — they are an itemised list of known weak points, some
+# still open.
+_unused/
+
+# `python -m etl.generate_literature` writes a .md source next to each rendered
+# PDF/DOCX. Only the rendered files are ingested (docs_parse.SUPPORTED is
+# {.pdf, .docx}), so the Markdown is a duplicate of content already committed in
+# binary form. Regenerating the corpus must not dirty the tree.
+backend/data/literature/*.md
+
+# setup.sh --local writes dev-server pidfiles and logs here
+.dev/

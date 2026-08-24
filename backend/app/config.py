@@ -9,11 +9,40 @@ from __future__ import annotations
 
 import base64
 import binascii
+import os
 from functools import lru_cache
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from pydantic import Field, computed_field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def _system_timezone() -> str:
+    """The host's IANA zone name, so `AGENDA_TIMEZONE` need not be configured.
+
+    There is no stdlib call for this: `zoneinfo` resolves a name to a zone but
+    will not tell you which name is local, and `datetime.astimezone().tzname()`
+    returns an abbreviation ("IST") that `ZoneInfo` cannot resolve back. Reading
+    the `/etc/localtime` symlink is the portable-on-Linux way, and `TZ` wins when
+    set because that is how a container is told where it lives.
+
+    Falls back to UTC rather than guessing. A wrong zone makes tasks flip to
+    overdue a few hours early — quiet wrongness, so the fallback is the one zone
+    that is never a silent lie about somewhere else.
+    """
+    from_env = os.environ.get("TZ", "").strip()
+    if from_env:
+        return from_env
+    try:
+        link = Path("/etc/localtime")
+        if link.is_symlink():
+            parts = link.resolve().parts
+            if "zoneinfo" in parts:
+                return "/".join(parts[parts.index("zoneinfo") + 1 :])
+    except OSError:  # unreadable /etc — not worth failing startup over
+        pass
+    return "UTC"
 
 
 class Settings(BaseSettings):
@@ -85,15 +114,20 @@ class Settings(BaseSettings):
     # reading one thread needs bodies.
     agenda_gmail_scope: str = "readonly"
     # A sent mail with no reply after this many days is a follow-up due.
-    # The zone "today", "overdue" and "upcoming" are judged in. A CONNECTED
-    # account's own calendar_tz overrides this, because Google already knows
-    # where the rep is; this is the fallback for reps with no Google connection,
-    # since tasks work without one and a task list has to know what day it is.
+    # The zone "today", "overdue" and "upcoming" are judged in. Resolved in three
+    # steps, most specific first, so this normally needs no configuration at all:
     #
-    # Default UTC rather than a guess: set it wrong and tasks flip to overdue a
-    # few hours early or late, which is quiet wrongness rather than a crash, and
-    # therefore worth making somebody type.
-    agenda_timezone: str = "UTC"
+    #   1. the CONNECTED account's own calendar_tz — Google already knows where
+    #      the rep is, and this is per-rep, so a field force spanning zones is
+    #      correct without anyone configuring anything (see agenda.rep_timezone)
+    #   2. this setting, if someone sets AGENDA_TIMEZONE explicitly
+    #   3. the host's own zone (TZ, else /etc/localtime)
+    #
+    # Step 3 is why AGENDA_TIMEZONE is commented out in the .env templates. A server
+    # deployed for a field force sits in that field force's zone, and the machine
+    # already knows which one that is; making an operator retype it was one more
+    # thing to get quietly wrong.
+    agenda_timezone: str = Field(default_factory=_system_timezone)
 
     agenda_followup_days: int = 3
     agenda_window_days: int = 14

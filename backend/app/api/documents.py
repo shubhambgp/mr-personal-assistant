@@ -18,6 +18,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, File, HTTPException, UploadFile, status
 
+from ..core.security import RateLimiter
 from ..deps import CurrentRep
 from ..services import vectors
 from ..services.openai_client import get_client
@@ -32,6 +33,13 @@ MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 MAX_PAGES = 120
 ALLOWED_SUFFIXES = {".pdf", ".docx"}
 
+#: Per-rep: each upload costs parsing plus an embedding call per chunk, so this
+#: is a spend control, not a UX one. A rep building a library uploads a handful
+#: of files; a script uploads hundreds (audit finding M-SEC5). In-process, same
+#: single-worker caveat as the login limiter.
+_upload_limiter = RateLimiter(max_attempts=12, window_seconds=600)
+
+
 @router.get("")
 def list_documents(rep: CurrentRep) -> list[dict]:
     """What this rep can retrieve from: the shared library plus their own uploads."""
@@ -40,6 +48,14 @@ def list_documents(rep: CurrentRep) -> list[dict]:
 
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def upload_document(rep: CurrentRep, file: UploadFile = File(...)) -> dict:
+    key = str(rep.chair_id)
+    if not _upload_limiter.check(key):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many uploads in a short time. Wait a few minutes and try again.",
+            headers={"Retry-After": str(_upload_limiter.retry_after(key))},
+        )
+
     name = Path(file.filename or "document").name
     suffix = Path(name).suffix.lower()
     if suffix not in ALLOWED_SUFFIXES:
