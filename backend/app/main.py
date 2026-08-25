@@ -25,13 +25,64 @@ configure_logging(settings.log_level)
 log = logging.getLogger(__name__)
 
 
+# ── error tracking: the redactor, ready to switch on ────────────────────────
+# Sentry is wired but OFF: `sentry-sdk` is commented out in requirements.txt and
+# SENTRY_DSN is empty, so a fresh checkout sends nothing anywhere. To turn it on,
+# uncomment the pin, set the DSN, and uncomment this function plus the two
+# `before_send` / `traces_sample_rate` lines in the lifespan below.
+#
+# It exists as a sample rather than live code because there is nothing to send
+# errors to yet — but it is written out in full, because the interesting part is
+# not the wiring, it is that events must be redacted with the SAME function the
+# audit log uses. A second copy of "what counts as PII" is a copy that drifts.
+# Full reasoning: docs/SENTRY_SETUP.md
+#
+# from .bot.audit import scrub
+# from .core.logging import chair_id_var, request_id_var
+#
+# def _before_send(event, hint):
+#     """Redact, then correlate. Runs on every event before it leaves us."""
+#     del hint
+#     # Same regexes as the audit log — addresses and mobile-shaped numbers out.
+#     event = scrub(event)
+#     event.setdefault("tags", {})["request_id"] = request_id_var.get()
+#     chair = chair_id_var.get()
+#     if chair is not None:
+#         # An integer, never rep_name: the tag has to identify the rep to US
+#         # without naming a person to a third party.
+#         event["tags"]["chair_id"] = str(chair)
+#     return event
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     if settings.sentry_dsn:
         try:
             import sentry_sdk
 
-            sentry_sdk.init(dsn=settings.sentry_dsn, environment=settings.environment)
+            sentry_sdk.init(
+                dsn=settings.sentry_dsn,
+                environment=settings.environment,
+                # Both of these are ACTIVE safety settings, not tuning.
+                #
+                # send_default_pii attaches cookies, headers and the request
+                # body — and the session cookie IS the auth token here. It
+                # defaults to False; it is written out so nobody "enables the
+                # useful context" without reading this.
+                send_default_pii=False,
+                # include_local_variables defaults to TRUE, and that default is
+                # wrong for this app: stack frames in services/agenda hold
+                # `body`, `subject` and `thread_text`, so an error inside
+                # send_mail would ship a draft addressed to a prescriber to a
+                # third party — exactly what CLAUDE.md §1.10 forbids the audit
+                # log from doing.
+                include_local_variables=False,
+                # Uncomment with _before_send below. See docs/SENTRY_SETUP.md.
+                # before_send=_before_send,
+                # A turn is 10-60s and ~97.5% of it is the model, so tracing
+                # every one buys noise and cost rather than signal.
+                # traces_sample_rate=0.05,
+            )
             log.info("sentry enabled")
         except ImportError:
             log.warning("SENTRY_DSN set but sentry-sdk is not installed")

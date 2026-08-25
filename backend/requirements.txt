@@ -101,7 +101,14 @@ pytest-asyncio==1.4.0
 # is still what FastAPI's TestClient uses for transport.
 ruff==0.16.4
 
-# OPTIONAL — error tracking. app/main.py enables Sentry only when SENTRY_DSN is
-# set, and degrades with a warning if this is absent. Uncomment (and pin) to turn
-# it on; left out by default so the base image carries no telemetry dependency.
+# OPTIONAL — error tracking, and the ONLY commented-out dependency here.
+#
+# app/main.py enables Sentry only when SENTRY_DSN is set and degrades with a
+# warning when this package is absent, so uncommenting the pin below is step one
+# of two: step two is uncommenting the `_before_send` redactor in app/main.py.
+# Do not skip it — Sentry captures stack-frame locals, and this app's frames hold
+# mail bodies addressed to prescribers.
+#
+# Left out by default so the base image carries no telemetry dependency at all.
+# Full setup, and what to verify on the first event: docs/SENTRY_SETUP.md
 # sentry-sdk==2.20.0

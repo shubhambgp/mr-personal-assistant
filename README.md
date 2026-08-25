@@ -237,6 +237,8 @@ Full details: [CLAUDE.md](CLAUDE.md) and
 | [ENGINEERING_LOG.md](ENGINEERING_LOG.md) | Numbered postmortems — why things are the way they are |
 | [DATA.md](DATA.md) | The synthetic dataset |
 | [docs/GOOGLE_SETUP.md](docs/GOOGLE_SETUP.md) | Creating the OAuth client for Gmail + Calendar |
+| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | The CD half of the pipeline — images, ssh deploy, rollback |
+| [docs/SENTRY_SETUP.md](docs/SENTRY_SETUP.md) | Error tracking: wired but off, and the redaction to do first |
 
 ## Before deploying anywhere real
 
@@ -244,3 +246,22 @@ Generate your own `JWT_SECRET`, use your own `OPENAI_API_KEY` and database
 credentials, set `ENVIRONMENT=production` (which requires `COOKIE_SECURE=true`
 and disables `/docs`), and put it behind TLS. The demo rep password is shared
 and exists for the synthetic dataset only.
+
+[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) has the rest: the CD workflow, the
+five deploy-time traps specific to this app, and what the pipeline deliberately
+does not do. Four things there are worth knowing before you start, because each
+one is a decision rather than a setting:
+
+* **One backend process, by design.** The rate limiters, the metrics and three
+  caches are per-process, and local-mode Qdrant holds a file lock. Never add
+  `--workers`; a second one silently multiplies every rate limit. Redis and a
+  Qdrant server are what unlock horizontal scale.
+* **A session token cannot be revoked** before its 8-hour expiry — logout clears
+  the browser's copy, not the token. That is also why a connected mailbox is
+  stored server-side instead of as a token claim: a stored connection is revoked
+  in one statement.
+* **Schema changes are manual.** There is no migration tool; the four `.sql`
+  files are idempotent and applied by hand.
+* **Error tracking is off.** Turning it on is two uncomments and a redactor —
+  [docs/SENTRY_SETUP.md](docs/SENTRY_SETUP.md), and read the redaction section
+  before the first event, because an event already sent cannot be unsent.

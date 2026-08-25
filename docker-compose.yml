@@ -59,8 +59,17 @@ services:
       DATABASE_URL_RO: postgresql://qorvexa_ro:${RO_PASSWORD:-qorvexa_ro}@db:5432/qorvexa?options=-csearch_path%3Dapp,public
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in your shell or a .env beside this file}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      CORS_ORIGINS: http://localhost:8080
-      ENVIRONMENT: docker
+      # Also the OAuth landing page: the agenda callback redirects to the first
+      # origin here, so a deployment that cannot override this sends reps to
+      # localhost after a successful Gmail connect.
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8080}
+      # Overridable because `production` is what disables /docs and what makes
+      # COOKIE_SECURE mandatory; hardcoded, neither could ever be switched on.
+      ENVIRONMENT: ${ENVIRONMENT:-docker}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      # Optional error tracking. Empty = off, and sentry-sdk is not in the
+      # image by default either — see docs/SENTRY_SETUP.md.
+      SENTRY_DSN: ${SENTRY_DSN:-}
       # The agenda's OAuth client. These MUST be forwarded explicitly: .env is
       # excluded by .dockerignore (deliberately — secrets do not belong in an
       # image layer), so without these lines backend/.env is invisible to the

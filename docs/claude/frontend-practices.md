@@ -319,7 +319,10 @@ something to start one." — an assertion the app could not back.
 * **Every API path is relative.** `/api/...` — Vite proxies in dev, nginx in
   prod. There is deliberately **no** `VITE_API_URL`: a different origin means
   the httpOnly cookie stops being sent, and a `VITE_*` value is baked into the
-  public bundle anyway, so no secret could ever live there.
+  public bundle anyway, so no secret could ever live there. The one thing that
+  could legitimately live there is a value that is *meant* to be public — a
+  Sentry DSN is the example, and `docs/SENTRY_SETUP.md` says so where it
+  belongs, next to the decision.
 * **Raw HTML stays off.** `react-markdown` renders model output with raw HTML
   disabled; enabling `rehype-raw` would turn a prompt injection into stored XSS.
   There is no `dangerouslySetInnerHTML` and no `eval` in `src/`.

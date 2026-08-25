@@ -109,13 +109,21 @@ _FREE_TEXT_KEYS = frozenset(
 )
 
 
-def _scrub(value):
+def scrub(value):
+    """Addresses and mobile numbers out of anything — str, dict or list.
+
+    PUBLIC because it has a second caller the moment error tracking is switched
+    on: Sentry captures stack-frame locals, and this app's frames hold mail
+    bodies. Both paths share this one implementation rather than each carrying
+    its own idea of what PII is — the same reasoning that keeps the column-level
+    definition in the manifest (CLAUDE.md §1.4). See docs/SENTRY_SETUP.md.
+    """
     if isinstance(value, str):
         return _MOBILE.sub("[mobile]", _EMAIL.sub("[email]", value))
     if isinstance(value, dict):
-        return {k: _scrub(v) for k, v in value.items()}
+        return {k: scrub(v) for k, v in value.items()}
     if isinstance(value, list):
-        return [_scrub(v) for v in value]
+        return [scrub(v) for v in value]
     return value
 
 
@@ -126,7 +134,7 @@ def redact(fields: dict) -> dict:
     without touching the filesystem.
     """
     return {
-        key: (_scrub(value) if key in _FREE_TEXT_KEYS else value)
+        key: (scrub(value) if key in _FREE_TEXT_KEYS else value)
         for key, value in fields.items()
     }
 
