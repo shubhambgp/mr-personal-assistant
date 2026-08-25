@@ -21,9 +21,11 @@ const twMerge = extendTailwindMerge({
   extend: {
     classGroups: {
       'font-size': [{ text: ['label', '2xs', 'prose'] }],
-      'rounded': [{ rounded: ['card', 'input'] }],
-      'shadow': [{ shadow: ['lift', 'menu'] }],
-      'animate': [{ animate: ['rise', 'slide-in', 'pop', 'scale-in', 'shimmer', 'wave', 'caret', 'rail'] }],
+      rounded: [{ rounded: ['card', 'input'] }],
+      shadow: [{ shadow: ['lift', 'menu'] }],
+      animate: [
+        { animate: ['rise', 'slide-in', 'pop', 'scale-in', 'shimmer', 'wave', 'caret', 'rail'] },
+      ],
     },
   },
 })

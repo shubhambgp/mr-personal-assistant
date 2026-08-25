@@ -81,9 +81,11 @@ export interface ToolCall {
   input: Record<string, unknown>
   output?: string
   isError?: boolean
-  durationMs?: number
-  /** Wall-clock start, so a running card can show live elapsed time. */
-  startedAt: number
+  /* No duration/start-time fields: the duration UI was removed on purpose
+     ("how long" is plumbing — /api/metrics records it for whoever needs the
+     number), and stored-but-never-read state is a trap. The SSE `tool_end`
+     event still CARRIES duration_ms — that is the backend contract — it is
+     simply not kept. */
   status: 'running' | 'done' | 'error'
 }
 
@@ -123,7 +125,6 @@ export interface ChatMessage {
   notices: string[]
   /** True while tokens are still arriving — drives the caret and the Stop button. */
   streaming?: boolean
-  timing?: { totalMs: number; dbMs: number; dbSharePct: number | null }
   attachments?: Attachment[]
   /** Set when this turn paused for a human decision; cleared when it resumes.
    *
@@ -261,4 +262,30 @@ export interface GoogleConnection {
   scopes: string[]
   calendar_tz?: string | null
   why: string | null
+}
+
+export interface LibraryDocument {
+  document_id: string | null
+  title: string | null
+  /** The uploaded file's name — often the most recognisable label for a rep's
+   *  own uploads. Null for documents ingested before the field was projected. */
+  source_filename: string | null
+  doc_type: string | null
+  brand: string | null
+  molecule: string | null
+  version: string | null
+  effective_date: string | null
+  scope: string | null
+  pages: number | null
+  /** Null for anything ingested before the timestamp existed — render nothing,
+   *  never "Invalid Date". */
+  ingested_at: string | null
+}
+
+export interface UploadedDocument {
+  filename: string
+  status: string
+  pages: number
+  chunks: number
+  detail: string
 }

@@ -39,20 +39,26 @@ export function useConversations() {
           setError(false)
         }
       })
-      .catch(() => { if (alive) setError(true) })
-      .finally(() => { if (alive) setLoading(false) })
-    return () => { alive = false }
+      .catch(() => {
+        if (alive) setError(true)
+      })
+      .finally(() => {
+        if (alive) setLoading(false)
+      })
+    return () => {
+      alive = false
+    }
   }, [])
 
   const rename = useCallback(async (id: string, title: string) => {
     // Optimistic: the rep sees the new title immediately, and a failed PATCH
     // is corrected by the next refresh rather than blocking the edit.
-    setConversations((prev) => prev.map((c) => (c.id === id ? { ...c, title } : c)))
+    setConversations((prev) => prev?.map((c) => (c.id === id ? { ...c, title } : c)))
     await api.renameConversation(id, title).catch(() => undefined)
   }, [])
 
   const remove = useCallback(async (id: string) => {
-    setConversations((prev) => prev.filter((c) => c.id !== id))
+    setConversations((prev) => prev?.filter((c) => c.id !== id))
     await api.deleteConversation(id).catch(() => undefined)
   }, [])
 

@@ -10,7 +10,7 @@ import { useMemo, useState } from 'react'
 import { BookOpen, Lock, Search, X } from 'lucide-react'
 
 import { Badge, Card, IconButton, Skeleton } from '@/components/ui'
-import type { LibraryDocument } from '@/lib/api'
+import type { LibraryDocument } from '@/lib/types'
 import { CONTENT_COL } from '@/lib/format'
 import { cx } from '@/lib/cx'
 
@@ -25,12 +25,13 @@ export function LibraryPanel({ active }: { active: boolean }) {
     const q = query.trim().toLowerCase()
     const matches = (d: LibraryDocument) =>
       !q ||
-      [d.title, d.source_filename, d.brand, d.molecule]
-        .some((field) => field?.toLowerCase().includes(q))
-    const visible = documents.filter(matches)
+      [d.title, d.source_filename, d.brand, d.molecule]?.some((field) =>
+        field?.toLowerCase().includes(q),
+      )
+    const visible = documents?.filter(matches)
     return {
-      mine: visible.filter((d) => d.scope === 'chair'),
-      shared: visible.filter((d) => d.scope !== 'chair'),
+      mine: visible?.filter((d) => d.scope === 'chair'),
+      shared: visible?.filter((d) => d.scope !== 'chair'),
     }
   }, [documents, query])
 
@@ -80,7 +81,7 @@ export function LibraryPanel({ active }: { active: boolean }) {
 
         {loading ? (
           <div className="space-y-2">
-            {[0, 1, 2].map((i) => (
+            {[0, 1, 2]?.map((i) => (
               <Skeleton key={i} className="h-14 w-full" />
             ))}
             <p role="status" className="sr-only">
@@ -93,16 +94,13 @@ export function LibraryPanel({ active }: { active: boolean }) {
               title="My uploads"
               documents={mine}
               empty={
-                query
-                  ? 'No uploads match.'
-                  : 'Nothing yet. Documents you add are private to you.'
+                query ? 'No uploads match.' : 'Nothing yet. Documents you add are private to you.'
               }
             />
             <p className="flex items-start gap-1.5 px-1 text-2xs text-fg-subtle">
               <Lock className="mt-0.5 size-3 shrink-0" aria-hidden="true" />
               <span>
-                Documents are parsed and indexed for retrieval; the original file is
-                not kept.
+                Documents are parsed and indexed for retrieval; the original file is not kept.
               </span>
             </p>
 
@@ -139,7 +137,7 @@ function Section({
         </p>
       ) : (
         <ul className="flex flex-col gap-1.5">
-          {documents.map((doc, i) => (
+          {documents?.map((doc, i) => (
             <DocumentRow key={doc.document_id ?? `${title}-${i}`} doc={doc} />
           ))}
         </ul>
@@ -154,7 +152,7 @@ function DocumentRow({ doc }: { doc: LibraryDocument }) {
     doc.brand,
     doc.molecule,
     doc.pages != null ? `${doc.pages} page${doc.pages === 1 ? '' : 's'}` : null,
-  ].filter(Boolean)
+  ]?.filter(Boolean)
   // Null for anything ingested before the timestamp existed — render nothing
   // rather than "Invalid Date".
   const added = doc.ingested_at ? new Date(doc.ingested_at) : null
@@ -173,7 +171,9 @@ function DocumentRow({ doc }: { doc: LibraryDocument }) {
           <p className="mt-0.5 truncate text-2xs text-fg-subtle">
             {meta.join(' · ')}
             {added && !Number.isNaN(added.getTime()) && (
-              <>{meta.length > 0 && ' · '}Added {added.toLocaleDateString()}</>
+              <>
+                {meta.length > 0 && ' · '}Added {added.toLocaleDateString()}
+              </>
             )}
           </p>
         )}

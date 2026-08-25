@@ -26,14 +26,10 @@ export function AttachmentTray({
   if (!files.length && !documents.length) return null
   return (
     <ul className="mb-2 flex flex-wrap items-center gap-2 px-1">
-      {files.map((file, i) => (
-        <Thumb
-          key={`${file.name}-${file.size}-${i}`}
-          file={file}
-          onRemove={() => onRemove(i)}
-        />
+      {files?.map((file, i) => (
+        <Thumb key={`${file.name}-${file.size}-${i}`} file={file} onRemove={() => onRemove(i)} />
       ))}
-      {documents.map((file, i) => (
+      {documents?.map((file, i) => (
         <DocChip
           key={`${file.name}-${file.size}-${i}`}
           file={file}

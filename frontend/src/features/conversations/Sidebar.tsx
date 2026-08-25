@@ -19,12 +19,11 @@ import { ThemeToggle } from '@/app/layout/ThemeToggle'
 import { Badge, Button, IconButton, Menu, MenuItem, Skeleton } from '@/components/ui'
 import { bucketFor, DATE_BUCKETS } from '@/lib/format'
 import type { DateBucket } from '@/lib/format'
+import type { View } from '@/lib/routes'
 import type { ConversationSummary } from '@/lib/types'
 import { cx } from '@/lib/cx'
 
 import { ConversationRow } from './ConversationRow'
-
-type View = 'chat' | 'agenda' | 'settings' | 'library'
 
 interface Props {
   conversations: ConversationSummary[]
@@ -81,7 +80,7 @@ export function Sidebar({
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
     if (!q) return conversations
-    return conversations.filter((c) => (c.title ?? 'Untitled').toLowerCase().includes(q))
+    return conversations?.filter((c) => (c.title ?? 'Untitled').toLowerCase().includes(q))
   }, [conversations, query])
 
   // Grouped by `updated_at`, which the API already returned and nothing
@@ -94,7 +93,7 @@ export function Sidebar({
       if (list) list.push(c)
       else map.set(bucket, [c])
     }
-    return DATE_BUCKETS.flatMap((bucket) => {
+    return DATE_BUCKETS?.flatMap((bucket) => {
       const items = map.get(bucket)
       return items?.length ? [{ bucket, items }] : []
     })
@@ -225,10 +224,13 @@ export function Sidebar({
         )}
       </div>
 
-      <nav aria-label="Conversation history" className="scrollbar-thin min-h-0 flex-1 overflow-y-auto">
+      <nav
+        aria-label="Conversation history"
+        className="scrollbar-thin min-h-0 flex-1 overflow-y-auto"
+      >
         {loading ? (
           <div className="space-y-1.5 p-1">
-            {[0, 1, 2, 3].map((i) => (
+            {[0, 1, 2, 3]?.map((i) => (
               <Skeleton key={i} className="h-8 w-full" />
             ))}
           </div>
@@ -250,11 +252,11 @@ export function Sidebar({
             No conversations match.
           </p>
         ) : (
-          grouped.map(({ bucket, items }) => (
+          grouped?.map(({ bucket, items }) => (
             <section key={bucket} className="mb-2">
               <h2 className="px-3 pb-1 pt-2 text-label uppercase text-fg-subtle">{bucket}</h2>
               <ul className="space-y-0.5">
-                {items.map((c) => (
+                {items?.map((c) => (
                   <ConversationRow
                     key={c.id}
                     conversation={c}

@@ -1,0 +1,10 @@
+# Runs on every commit, on STAGED files only (lint-staged), so it stays fast —
+# the full typecheck/test/build gates run in CI.
+#
+# Why the layout is unusual: the repository root deliberately has NO
+# package.json (a stray root npm install once put a second copy of React above
+# the frontend and blank-screened the app), so Husky is installed from
+# frontend/package.json with `"prepare": "cd .. && husky frontend/.husky || true"`.
+# The `|| true` keeps `npm ci` working inside the Docker image build, where
+# there is no .git directory for hooks to attach to.
+cd frontend && npx lint-staged

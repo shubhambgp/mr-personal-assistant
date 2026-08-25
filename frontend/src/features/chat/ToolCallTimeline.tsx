@@ -31,7 +31,7 @@ export function ToolCallTimeline({
 
   if (!calls.length) return null
 
-  const failed = calls.some(
+  const failed = calls?.some(
     (c) => c.status === 'error' || (c.output ?? '').trimStart().startsWith('{"error"'),
   )
   const active = calls.find((c) => c.status === 'running')
@@ -39,7 +39,7 @@ export function ToolCallTimeline({
   const open = toggled ?? failed
 
   if (live && !open) {
-    const doneCount = calls.filter((c) => c.status !== 'running').length
+    const doneCount = calls?.filter((c) => c.status !== 'running').length
     return (
       <div className="flex flex-col gap-1">
         {doneCount > 0 && (
@@ -95,7 +95,7 @@ export function ToolCallTimeline({
             className="animate-rail absolute inset-y-1 left-0 w-px origin-top bg-line-strong"
           />
           <ul className="flex flex-col gap-0.5" aria-label="Steps taken">
-            {calls.map((call, i) => (
+            {calls?.map((call, i) => (
               <ToolCallRow key={call.callId} call={call} index={i} />
             ))}
           </ul>

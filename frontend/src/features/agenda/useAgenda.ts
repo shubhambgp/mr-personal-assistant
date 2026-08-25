@@ -54,16 +54,32 @@ export function useAgenda(active: boolean) {
   // state synchronously, which react-hooks/set-state-in-effect rightly refuses.
   // The `cancelled` flag is the real benefit: switching views mid-request no
   // longer writes state for a panel that has gone away.
+  //
+  // The mailbox is fetched ONLY on the initial `filters === DEFAULT_FILTERS`
+  // run — that reference check is sound because `applyFilters` always spreads a
+  // NEW object, so any later filter state (even one set back to the default
+  // values) is a different reference. A filter change therefore re-fetches
+  // tasks alone, which is the whole reason this hook makes two calls: clicking
+  // "done" must never wait on a Gmail round trip.
   useEffect(() => {
     if (!active) return
     let cancelled = false
+    const initial = filters === DEFAULT_FILTERS
     void (async () => {
       try {
-        const [next, list] = await Promise.all([api.agenda(), api.tasks(filters)])
-        if (!cancelled) {
-          setAgenda(next)
-          setTasks(list)
-          setError(null)
+        if (initial) {
+          const [next, list] = await Promise.all([api.agenda(), api.tasks(filters)])
+          if (!cancelled) {
+            setAgenda(next)
+            setTasks(list)
+            setError(null)
+          }
+        } else {
+          const list = await api.tasks(filters)
+          if (!cancelled) {
+            setTasks(list)
+            setError(null)
+          }
         }
       } catch (err) {
         if (!cancelled) {
@@ -78,9 +94,7 @@ export function useAgenda(active: boolean) {
 
   const load = reload
 
-  /** Applying a filter re-fetches TASKS ONLY. The effect above re-runs on the
-   *  new `filters`, which also refreshes the mail counts — acceptable because a
-   *  filter change is a deliberate act, and it keeps one code path. */
+  /** Applying a filter re-fetches TASKS ONLY — see the effect above. */
   const applyFilters = useCallback((next: Partial<TaskFilters>) => {
     setFilters((prev) => ({ ...prev, ...next }))
   }, [])
@@ -131,9 +145,7 @@ export function useAgenda(active: boolean) {
     async (id: string, done = true) => {
       // Optimistic: ticking a box should feel instant, and the failure path just
       // reloads the truth.
-      setTasks((prev) =>
-        prev ? { ...prev, rows: prev.rows.filter((t) => t.id !== id) } : prev,
-      )
+      setTasks((prev) => (prev ? { ...prev, rows: prev.rows?.filter((t) => t.id !== id) } : prev))
       try {
         await api.setTaskDone(id, done)
         await loadTasks(filters)
@@ -146,9 +158,7 @@ export function useAgenda(active: boolean) {
 
   const deleteTask = useCallback(
     async (id: string) => {
-      setTasks((prev) =>
-        prev ? { ...prev, rows: prev.rows.filter((t) => t.id !== id) } : prev,
-      )
+      setTasks((prev) => (prev ? { ...prev, rows: prev.rows?.filter((t) => t.id !== id) } : prev))
       try {
         await api.deleteTask(id)
         await loadTasks(filters)

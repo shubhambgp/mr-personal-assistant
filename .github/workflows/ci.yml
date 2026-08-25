@@ -128,6 +128,12 @@ jobs:
       # does not recognise and never warns, which is how `brand-950` survived
       # four references and a green CI run.
       - run: npm run lint
+      # Biome is the formatter only (linting stays on eslint — its type-checked
+      # and Tailwind class rules have no Biome equivalent).
+      - run: npm run format:check
+      # Unit tests: the SSE reducer is the frontend half of the streaming
+      # contract, and the backend's evals cannot see it (they bypass HTTP).
+      - run: npm run test
       - run: npm run build
 
   docker-build:

@@ -9,6 +9,7 @@ type Size = 'sm' | 'md' | 'lg'
    dark — so `bg-accent hover:bg-accent-ink` is correct in both themes and no
    --accent-hover token is needed. `overlay` is ink with an opacity modifier,
    which is why ghost and subtle carry no dark: variant at all. */
+// biome-ignore format: the aligned columns are deliberate — read as a table
 const VARIANTS: Record<Variant, string> = {
   primary: 'bg-accent text-accent-fg hover:bg-accent-ink active:scale-[.98]',
   ghost:   'text-fg-muted hover:bg-overlay/6 hover:text-fg',

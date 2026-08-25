@@ -10,11 +10,11 @@
 import { fmtCell } from '@/lib/format'
 
 export function KeyValues({ data }: { data: Record<string, unknown> }) {
-  const entries = Object.entries(data).filter(([, v]) => v !== null && v !== undefined)
+  const entries = Object.entries(data)?.filter(([, v]) => v !== null && v !== undefined)
   if (!entries.length) return <span className="text-2xs text-fg-subtle">none</span>
   return (
     <dl className="flex flex-wrap gap-x-4 gap-y-1 text-2xs">
-      {entries.map(([key, value]) => (
+      {entries?.map(([key, value]) => (
         <div key={key} className="flex min-w-0 gap-1">
           <dt className="font-mono text-fg-subtle">{key}</dt>
           <dd className="truncate font-medium text-fg-muted">{fmtCell(value)}</dd>

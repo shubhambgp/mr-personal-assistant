@@ -93,7 +93,7 @@ export function ApprovalCard({
       </header>
 
       <div className="flex flex-col gap-3 p-3">
-        {pending.calls.map((call) => (
+        {pending.calls?.map((call) => (
           <CallBlock
             key={call.id}
             call={call}
@@ -198,8 +198,8 @@ function CallBlock({
   // exfiltration channel.
   const fixed = Object.fromEntries(
     Object.entries(call.args)
-      .filter(([key, value]) => !editable.has(key) && value != null && FIXED_LABELS[key])
-      .map(([key, value]) => [
+      ?.filter(([key, value]) => !editable.has(key) && value != null && FIXED_LABELS[key])
+      ?.map(([key, value]) => [
         FIXED_LABELS[key] as string,
         key === 'thread_id' ? 'this thread' : value,
       ]),
@@ -215,7 +215,7 @@ function CallBlock({
         </div>
       )}
 
-      {call.editable.map((field) => {
+      {call.editable?.map((field) => {
         const current = edits[field] ?? asText(call.args[field])
         const label = LABELS[field] ?? field
         return (
@@ -263,7 +263,7 @@ function Findings({ review }: { review: ComplianceReview }) {
 
       {review.findings.length > 0 && (
         <ul className="flex flex-col gap-1.5">
-          {review.findings.map((finding, i) => (
+          {review.findings?.map((finding, i) => (
             <li key={`${finding.rule}-${i}`} className="rounded-lg bg-overlay/6 px-2.5 py-2">
               <div className="mb-1 flex flex-wrap items-center gap-1.5">
                 <Badge tone={finding.severity === 'block' ? 'danger' : 'warning'}>

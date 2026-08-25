@@ -65,9 +65,7 @@ export function ToolCallRow({ call, index }: { call: ToolCall; index: number }) 
       </div>
 
       {/* The exception to "no internals": an error is a message TO the rep. */}
-      {softError && (
-        <p className="py-1 pl-8 pr-1.5 text-2xs text-danger">{softError}</p>
-      )}
+      {softError && <p className="py-1 pl-8 pr-1.5 text-2xs text-danger">{softError}</p>}
     </li>
   )
 }
@@ -92,4 +90,3 @@ function StatusIcon({ running, failed }: { running: boolean; failed: boolean }) 
     </span>
   )
 }
-

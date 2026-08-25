@@ -32,8 +32,12 @@ fast on purpose, so there is no size of change too small to run them.
    .venv/bin/ruff check .
    .venv/bin/python -m pytest tests -q      # no DB, ~1s — never skip
    cd ../frontend
-   npm run typecheck && npm run lint && npm run build
+   npm run typecheck && npm run lint && npm run format:check && npm run test && npm run build
    ```
+
+   A pre-commit hook (husky + lint-staged, installed by `npm ci` via
+   frontend/package.json's `prepare`) runs eslint --fix and the Biome formatter
+   on staged files — it is a fast safety net, not a replacement for the gates.
 5. **Run the extra gate the change actually needs** (see the matrix below).
 6. **Verify like a user, not only like a test.** The eval harness bypasses
    HTTP, so a green gate does not prove a person can send a message

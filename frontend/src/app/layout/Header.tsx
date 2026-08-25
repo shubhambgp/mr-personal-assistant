@@ -15,11 +15,7 @@ export function Header({
 }) {
   return (
     <header className="flex min-w-0 items-center gap-2 border-b border-line bg-page/85 px-3 py-2 backdrop-blur-sm sm:px-5">
-      <IconButton
-        label="Open conversations"
-        onClick={onOpenSidebar}
-        className="lg:hidden"
-      >
+      <IconButton label="Open conversations" onClick={onOpenSidebar} className="lg:hidden">
         <PanelLeft className="size-4" aria-hidden="true" />
       </IconButton>
 

@@ -103,9 +103,7 @@ export function Composer({ onSend, onStop, streaming, disabled }: Props) {
           ingested.push({ name: uploaded.filename, size: doc.size })
         }
       } catch (err) {
-        setUploadError(
-          err instanceof ApiError ? err.message : 'That document could not be added.',
-        )
+        setUploadError(err instanceof ApiError ? err.message : 'That document could not be added.')
         setUploading(false)
         return
       }
@@ -141,25 +139,34 @@ export function Composer({ onSend, onStop, streaming, disabled }: Props) {
           {/* Inside the shell, not floating above it. */}
           <AttachmentTray
             files={images}
-            onRemove={(index) => setImages((prev) => prev.filter((_, i) => i !== index))}
+            onRemove={(index) => setImages((prev) => prev?.filter((_, i) => i !== index))}
             documents={documents}
             onRemoveDocument={(index) =>
-              setDocuments((prev) => prev.filter((_, i) => i !== index))
+              setDocuments((prev) => prev?.filter((_, i) => i !== index))
             }
           />
 
           {uploadError && (
-            <p role="alert" className="animate-rise mb-1 rounded-lg bg-danger/12 px-2 py-1.5 text-2xs text-danger">
+            <p
+              role="alert"
+              className="animate-rise mb-1 rounded-lg bg-danger/12 px-2 py-1.5 text-2xs text-danger"
+            >
               {uploadError}
             </p>
           )}
           {voice.error && (
-            <p role="alert" className="animate-rise mb-1 rounded-lg bg-danger/12 px-2 py-1.5 text-2xs text-danger">
+            <p
+              role="alert"
+              className="animate-rise mb-1 rounded-lg bg-danger/12 px-2 py-1.5 text-2xs text-danger"
+            >
               {voice.error}
             </p>
           )}
           {uploadNote && (
-            <p role="status" className="animate-rise mb-1 rounded-lg bg-success/12 px-2 py-1.5 text-2xs text-success">
+            <p
+              role="status"
+              className="animate-rise mb-1 rounded-lg bg-success/12 px-2 py-1.5 text-2xs text-success"
+            >
               {uploadNote}
             </p>
           )}
@@ -202,8 +209,8 @@ export function Composer({ onSend, onStop, streaming, disabled }: Props) {
               className="hidden"
               onChange={(e) => {
                 const picked = Array.from(e.target.files ?? [])
-                const docs = picked.filter((f) => DOC_PATTERN.test(f.name))
-                const imgs = picked.filter((f) => !DOC_PATTERN.test(f.name))
+                const docs = picked?.filter((f) => DOC_PATTERN.test(f.name))
+                const imgs = picked?.filter((f) => !DOC_PATTERN.test(f.name))
                 if (imgs.length) {
                   setImages((prev) => [...prev, ...imgs].slice(0, MAX_FILES))
                 }

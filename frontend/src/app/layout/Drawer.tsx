@@ -36,7 +36,9 @@ export function Drawer({
 
     returnFocusRef.current = document.activeElement as HTMLElement | null
     const panel = panelRef.current
-    panel?.querySelector<HTMLElement>('button, [href], input, [tabindex]:not([tabindex="-1"])')?.focus()
+    panel
+      ?.querySelector<HTMLElement>('button, [href], input, [tabindex]:not([tabindex="-1"])')
+      ?.focus()
 
     // Locking the body is what stops the page behind the drawer scrolling
     // under your thumb on a phone.
@@ -55,7 +57,7 @@ export function Drawer({
         ...panel.querySelectorAll<HTMLElement>(
           'button:not([disabled]), [href], input:not([disabled]), [tabindex]:not([tabindex="-1"])',
         ),
-      ].filter((el) => el.offsetParent !== null)
+      ]?.filter((el) => el.offsetParent !== null)
       const first = focusable[0]
       const last = focusable[focusable.length - 1]
       if (!first || !last) return

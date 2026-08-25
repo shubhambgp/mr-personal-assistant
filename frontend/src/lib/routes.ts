@@ -24,16 +24,21 @@ export const ROUTE_PATTERNS = {
   settings: '/settings',
 } as const
 
+/** The four panes the app swaps in the middle grid row. Exported once, here,
+ *  because the union used to be spelled out in three places and a fifth pane
+ *  would have had to find them all. */
+export type View = 'chat' | 'agenda' | 'settings' | 'library'
+
 /** The sidebar's view name for a pathname — the app's routing is these four
  *  panes swapped in the middle grid row. */
-export function viewForPath(pathname: string): 'chat' | 'agenda' | 'settings' | 'library' {
+export function viewForPath(pathname: string): View {
   if (pathname.startsWith(ROUTES.agenda)) return 'agenda'
   if (pathname.startsWith(ROUTES.settings)) return 'settings'
   if (pathname.startsWith(ROUTES.library)) return 'library'
   return 'chat'
 }
 
-export function pathForView(view: 'chat' | 'agenda' | 'settings' | 'library'): string {
+export function pathForView(view: View): string {
   switch (view) {
     case 'agenda':
       return ROUTES.agenda

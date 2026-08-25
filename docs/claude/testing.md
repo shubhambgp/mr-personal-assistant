@@ -9,7 +9,13 @@
 | Retrieval eval | `.venv/bin/python -m evals.run_rag_eval` | offline, no API key |
 | LLM eval | `.venv/bin/python -m evals.run_eval` | database + `OPENAI_API_KEY` |
 
-Frontend: `npm run typecheck && npm run lint && npm run build`.
+Frontend: `npm run typecheck && npm run lint && npm run format:check && npm run test && npm run build`.
+
+Frontend unit tests are Vitest, beside their subjects (`src/**/*.test.ts(x)`).
+The SSE reducer test matters most: the eval harness bypasses HTTP, so
+`applyEvent` is the only guarded copy of the frontend's half of the streaming
+contract. Biome is the FORMATTER only — linting stays on eslint, whose
+type-checked and Tailwind-class rules have no Biome equivalent.
 
 ## Rules
 

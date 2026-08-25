@@ -39,7 +39,7 @@ export function MessageList({
 
   // Depends on the streamed content, so it runs per token while pinned.
   const signature = messages
-    .map((m) => `${m.id}:${m.content.length}:${m.toolCalls.length}`)
+    ?.map((m) => `${m.id}:${m.content.length}:${m.toolCalls.length}`)
     .join('|')
   useEffect(() => {
     if (!pinned) return
@@ -55,12 +55,9 @@ export function MessageList({
        enough to push the entire page into a horizontal scroll on a phone,
        measured at 300px before this was added. */
     <div className="relative min-h-0 min-w-0">
-      <div
-        ref={scrollRef}
-        className="scrollbar-thin h-full overflow-y-auto px-4 py-5 sm:px-6"
-      >
+      <div ref={scrollRef} className="scrollbar-thin h-full overflow-y-auto px-4 py-5 sm:px-6">
         <div className={`${CONTENT_COL} flex flex-col gap-6`}>
-          {messages.map((message) => (
+          {messages?.map((message) => (
             <MessageTurn key={message.id} message={message} onDecide={onDecide} />
           ))}
         </div>

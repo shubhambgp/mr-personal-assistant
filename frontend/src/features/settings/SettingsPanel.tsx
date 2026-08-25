@@ -83,13 +83,17 @@ export function SettingsPanel({ active }: { active: boolean }) {
         </header>
 
         {error && (
-          <p role="alert" className="rounded-card bg-danger/12 px-3 py-2 text-2xs text-danger">{error}</p>
+          <p role="alert" className="rounded-card bg-danger/12 px-3 py-2 text-2xs text-danger">
+            {error}
+          </p>
         )}
 
         {!connection ? (
           /* No spinner while an error is showing: an eternal spinner under an
              error banner promises progress that is not coming. */
-          error ? null : <Spinner />
+          error ? null : (
+            <Spinner />
+          )
         ) : (
           <Card className="flex flex-col gap-3 p-4">
             <div className="flex flex-wrap items-center gap-2">
@@ -118,13 +122,14 @@ export function SettingsPanel({ active }: { active: boolean }) {
             ) : connection.connected ? (
               <>
                 <p className="text-xs text-fg-muted">
-                  Connected as <span className="font-medium text-fg">{connection.email_account}</span>
+                  Connected as{' '}
+                  <span className="font-medium text-fg">{connection.email_account}</span>
                   {connection.calendar_tz ? ` · calendar timezone ${connection.calendar_tz}` : ''}
                 </p>
 
                 {connection.scopes.length > 0 && (
                   <ul className="flex flex-col gap-1">
-                    {connection.scopes.map((scope) => {
+                    {connection.scopes?.map((scope) => {
                       const plain = plainScope(scope)
                       return plain ? (
                         <li key={scope} className="flex items-start gap-1.5 text-2xs text-fg-muted">
@@ -168,8 +173,8 @@ export function SettingsPanel({ active }: { active: boolean }) {
                   </div>
                 )}
                 <p className="text-2xs text-fg-subtle">
-                  Disconnecting revokes access at Google and deletes the stored token. Your tasks and
-                  the record of what you have already approved and sent are kept.
+                  Disconnecting revokes access at Google and deletes the stored token. Your tasks
+                  and the record of what you have already approved and sent are kept.
                 </p>
               </>
             ) : (

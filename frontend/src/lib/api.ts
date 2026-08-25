@@ -3,6 +3,8 @@
 
 import type {
   Agenda,
+  LibraryDocument,
+  UploadedDocument,
   AgendaTask,
   TaskFilters,
   TaskList,
@@ -106,9 +108,13 @@ export const api = {
 
   /** The task browser. Filters go to the SERVER as query params rather than being
    *  applied here — status 'all' is unbounded, and filtering a truncated list in
-   *  the browser reports "nothing" when it means "nothing in the first page". */
-  tasks: (filters: TaskFilters) => {
-    const q = new URLSearchParams({ status: filters.status, limit: '200' })
+   *  the browser reports "nothing" when it means "nothing in the first page".
+   *
+   *  `limit` exists for the one caller that wants only `counts` (the sidebar's
+   *  overdue badge): the server computes counts over the whole filtered set, so
+   *  limit=1 returns the same numbers without shipping up to 200 rows. */
+  tasks: (filters: TaskFilters, limit = 200) => {
+    const q = new URLSearchParams({ status: filters.status, limit: String(limit) })
     if (filters.important) q.set('important', 'true')
     if (filters.source) q.set('source', filters.source)
     if (filters.doctorId !== null) q.set('doctor_id', String(filters.doctorId))
@@ -162,32 +168,6 @@ export const api = {
     form.set('file', file)
     return request<UploadedDocument>('/api/documents', { method: 'POST', body: form })
   },
-}
-
-export interface LibraryDocument {
-  document_id: string | null
-  title: string | null
-  /** The uploaded file's name — often the most recognisable label for a rep's
-   *  own uploads. Null for documents ingested before the field was projected. */
-  source_filename: string | null
-  doc_type: string | null
-  brand: string | null
-  molecule: string | null
-  version: string | null
-  effective_date: string | null
-  scope: string | null
-  pages: number | null
-  /** Null for anything ingested before the timestamp existed — render nothing,
-   *  never "Invalid Date". */
-  ingested_at: string | null
-}
-
-export interface UploadedDocument {
-  filename: string
-  status: string
-  pages: number
-  chunks: number
-  detail: string
 }
 
 /** A persisted message, as stored by app/services/conversations.py. */

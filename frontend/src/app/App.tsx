@@ -1,12 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
-import {
-  matchPath,
-  Navigate,
-  Route,
-  Routes,
-  useLocation,
-  useNavigate,
-} from 'react-router-dom'
+import { matchPath, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 
 import { Spinner } from '@/components/ui'
 import { useAuth } from '@/features/auth/authContext'
@@ -18,18 +11,15 @@ import { useChatStream } from '@/features/chat/useChatStream'
 import { Welcome } from '@/features/chat/Welcome'
 import { Sidebar } from '@/features/conversations/Sidebar'
 import { useConversations } from '@/features/conversations/useConversations'
-import { api } from '@/lib/api'
+import { api, ApiError } from '@/lib/api'
 import { cx } from '@/lib/cx'
 import { pathForView, ROUTE_PATTERNS, ROUTES, viewForPath } from '@/lib/routes'
-import type {
-  ApprovalDecision,
-  ChatMessage,
-  IngestedDocument,
-  ToolCall,
-} from '@/lib/types'
+import type { ApprovalDecision, ChatMessage, IngestedDocument, ToolCall } from '@/lib/types'
 
 import { Drawer } from './layout/Drawer'
+import { ErrorBoundary, ErrorFallback } from './ErrorBoundary'
 import { Header } from './layout/Header'
+import { NotFoundPage } from './NotFoundPage'
 import { useIsMobile } from './layout/useIsMobile'
 
 // Lazy: the chat is the landing pane; the other three panels ship as separate
@@ -100,6 +90,11 @@ function Chat({
 
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [vintage, setVintage] = useState('')
+  // The conversation id the server answered 404 for. Never cleared by hand:
+  // the render check compares it against the CURRENT route id, so navigating
+  // anywhere else makes it inert automatically, and navigating back to the
+  // same dead link correctly shows the state again.
+  const [missingConversation, setMissingConversation] = useState<string | null>(null)
   const isMobile = useIsMobile()
 
   // Which conversation's messages are on screen — set by a route load OR by the
@@ -170,9 +165,15 @@ function Chat({
     let alive = true
     api
       .vintage()
-      .then((v) => { if (alive) setVintage(v.summary) })
-      .catch(() => { if (alive) setVintage('') })
-    return () => { alive = false }
+      .then((v) => {
+        if (alive) setVintage(v.summary)
+      })
+      .catch(() => {
+        if (alive) setVintage('')
+      })
+    return () => {
+      alive = false
+    }
   }, [])
 
   // The URL drives which conversation is loaded. loadedRef is only advanced
@@ -197,7 +198,7 @@ function Chat({
         // Rebuild the tool timeline from what was persisted, so a resumed
         // thread shows the same intermediate steps the rep originally saw.
         reset(
-          raw.map<ChatMessage>((m) => ({
+          raw?.map<ChatMessage>((m) => ({
             id: m.id,
             role: m.role,
             content: m.content,
@@ -216,20 +217,28 @@ function Chat({
                   review: m.pending_approval.review,
                 }
               : undefined,
-            toolCalls: (m.tool_calls ?? []).map<ToolCall>((t, i) => ({
+            toolCalls: (m.tool_calls ?? [])?.map<ToolCall>((t, i) => ({
               callId: t.call_id ?? `${m.id}-${i}`,
               name: t.name ?? 'tool',
               input: t.input ?? {},
               output: t.output ?? undefined,
               isError: t.is_error ?? false,
-              durationMs: t.duration_ms ?? 0,
-              startedAt: 0,
               status: t.is_error ? 'error' : 'done',
             })),
           })),
         )
-      } catch {
-        if (!cancelled) {
+      } catch (err) {
+        if (cancelled) return
+        if (err instanceof ApiError && err.status === 404) {
+          // Deleted on another device, foreign, or mistyped. The backend
+          // answers 404 for all three on purpose (never 403 — see
+          // security-invariants §1.8), so this is the complete signal.
+          // loadedRef stays null: a message typed from this state starts a
+          // fresh conversation rather than resurrecting a dead id.
+          setMissingConversation(id)
+          loadedRef.current = null
+          reset([])
+        } else {
           loadedRef.current = id
           reset([])
         }
@@ -291,11 +300,15 @@ function Chat({
     [startNew, remove],
   )
 
-  // Anything that is not a known pane or a conversation URL goes home —
-  // including "/" and a mistyped deep link.
+  // "/" still goes home silently — it is an entry point, not a mistake. Any
+  // OTHER unknown path gets a real 404 page: a silent redirect made a broken
+  // bookmark look like the app ignoring you.
   const knownPath =
     view !== 'chat' || location.pathname === ROUTES.assistant || conversationMatch !== null
-  if (!knownPath) return <Navigate to={ROUTES.assistant} replace />
+  if (!knownPath) {
+    if (location.pathname === '/') return <Navigate to={ROUTES.assistant} replace />
+    return <NotFoundPage kind="page" fullPage />
+  }
 
   return (
     /* dvh, not vh: on mobile the URL bar changes the viewport height as you
@@ -342,10 +355,7 @@ function Chat({
         // inert while the drawer is open: without it Tab walks out of the
         // drawer into a chat the eye is treating as unavailable.
         {...(sidebarOpen ? { inert: true } : {})}
-        className={cx(
-          'grid min-w-0 flex-1 grid-rows-[auto_minmax(0,1fr)_auto]',
-          'h-dvh',
-        )}
+        className={cx('grid min-w-0 flex-1 grid-rows-[auto_minmax(0,1fr)_auto]', 'h-dvh')}
       >
         <Header
           repName={repName}
@@ -375,10 +385,23 @@ function Chat({
               <SettingsPanel active />
             ) : view === 'library' ? (
               <LibraryPanel active />
+            ) : routeConversationId && missingConversation === routeConversationId ? (
+              <NotFoundPage kind="conversation" />
             ) : messages.length === 0 ? (
               <Welcome name={repName} onPick={(prompt) => handleSend(prompt, [])} />
             ) : (
-              <MessageList messages={messages} onDecide={handleDecide} />
+              /* Its own boundary so one un-renderable turn cannot take the
+                 shell down with it — the sidebar and composer stay usable. */
+              <ErrorBoundary
+                fallback={
+                  <ErrorFallback
+                    title="This conversation could not be displayed"
+                    body="Something in this conversation failed to render. Reload to try again — nothing has been lost."
+                  />
+                }
+              >
+                <MessageList messages={messages} onDecide={handleDecide} />
+              </ErrorBoundary>
             )}
           </Suspense>
         </main>

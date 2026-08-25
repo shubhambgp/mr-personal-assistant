@@ -18,10 +18,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let alive = true
     api
       .me()
-      .then((r) => { if (alive) setRep(r) })
-      .catch(() => { if (alive) setRep(null) }) // 401 on first load is normal
-      .finally(() => { if (alive) setLoading(false) })
-    return () => { alive = false }
+      .then((r) => {
+        if (alive) setRep(r)
+      })
+      .catch(() => {
+        if (alive) setRep(null)
+      }) // 401 on first load is normal
+      .finally(() => {
+        if (alive) setLoading(false)
+      })
+    return () => {
+      alive = false
+    }
   }, [])
 
   // A 401 mid-session (the cookie expired) drops us back to the login screen,
@@ -41,10 +49,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setRep(null)
   }, [])
 
-  const value = useMemo(
-    () => ({ rep, loading, login, logout }),
-    [rep, loading, login, logout],
-  )
+  const value = useMemo(() => ({ rep, loading, login, logout }), [rep, loading, login, logout])
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }

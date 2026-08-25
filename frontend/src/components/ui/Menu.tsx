@@ -26,14 +26,41 @@ export function Menu({
   className?: string
 }) {
   const ref = useRef<HTMLDivElement>(null)
+  // Where focus goes back when the menu closes — captured at open, the same
+  // pattern Drawer.tsx uses. Without it, Escape strands focus on <body>.
+  const returnFocusRef = useRef<HTMLElement | null>(null)
 
   useEffect(() => {
     if (!open) return
+
+    returnFocusRef.current = document.activeElement as HTMLElement | null
+    // The ARIA menu pattern: focus moves INTO the menu on open. Only
+    // role="menuitem" participates — an embedded control row (the Settings
+    // menu's Theme toggle) is deliberately not a menuitem, so arrow keys skip
+    // it while Tab still reaches it.
+    const items = () => [...(ref.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])]
+    items()[0]?.focus()
+
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.stopPropagation()
         onClose()
+        return
       }
+      if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return
+      const list = items()
+      if (!list.length) return
+      e.preventDefault()
+      const current = list.indexOf(document.activeElement as HTMLElement)
+      const next =
+        e.key === 'Home'
+          ? 0
+          : e.key === 'End'
+            ? list.length - 1
+            : e.key === 'ArrowDown'
+              ? (current + 1) % list.length // wraps, per the ARIA pattern
+              : (current - 1 + list.length) % list.length
+      list[next]?.focus()
     }
     const onPointer = (e: PointerEvent) => {
       if (!ref.current?.contains(e.target as Node)) onClose()
@@ -45,6 +72,7 @@ export function Menu({
     return () => {
       document.removeEventListener('keydown', onKey)
       document.removeEventListener('pointerdown', onPointer)
+      returnFocusRef.current?.focus()
     }
   }, [open, onClose])
 
@@ -53,9 +81,9 @@ export function Menu({
   return (
     <div
       ref={ref}
-      /* Known a11y gap, deliberately not widened here: role="menu" promises the
-         ARIA menu keyboard pattern (arrow keys, focus-in on open) that this
-         popover does not implement. Tracked in audit finding M-FE7. */
+      /* role="menu" now keeps its promise: focus moves in on open, ArrowUp/Down
+         cycle (wrapping), Home/End jump, Escape closes and returns focus to the
+         trigger. This closed audit finding M-FE7. */
       role="menu"
       /* Scales in from the corner it is anchored to, so the menu visibly
          belongs to the button that was pressed. */

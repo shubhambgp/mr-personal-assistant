@@ -20,7 +20,7 @@ export function ThemeToggle({ className }: { className?: string }) {
   return (
     <fieldset className={cx('flex rounded-lg bg-overlay/6 p-0.5', className)}>
       <legend className="sr-only">Theme</legend>
-      {OPTIONS.map(({ mode: value, label, Icon }) => {
+      {OPTIONS?.map(({ mode: value, label, Icon }) => {
         const active = mode === value
         return (
           <button

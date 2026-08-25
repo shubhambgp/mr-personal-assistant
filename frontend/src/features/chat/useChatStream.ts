@@ -18,6 +18,24 @@ import type {
 let seq = 0
 const nextId = () => `m${Date.now().toString(36)}-${(seq += 1)}`
 
+/** Clone-then-mutate for one message: cheaper than a deep clone of the whole
+ *  list on every single token.
+ *
+ *  NOTE the clone list: only `toolCalls` and `notices` are copied, so any NEW
+ *  array field on ChatMessage must be added here or React will not see a push.
+ *  `pendingApproval` is deliberately an object replaced wholesale, which is why
+ *  it needs no entry. Exported (with applyEvent) so the unit tests exercise the
+ *  REAL clone semantics rather than a reimplementation of them. */
+export function patchMessage(message: ChatMessage, fn: (draft: ChatMessage) => void): ChatMessage {
+  const draft: ChatMessage = {
+    ...message,
+    toolCalls: [...message.toolCalls],
+    notices: [...message.notices],
+  }
+  fn(draft)
+  return draft
+}
+
 interface SendOptions {
   message: string
   images?: File[]
@@ -52,23 +70,11 @@ export function useChatStream(onConversationId?: (id: string) => void) {
     abortRef.current = null
   }, [])
 
-  // Mutate a draft, then publish once per event — avoids a deep clone of the
-  // whole message list on every single token.
-  //
-  // NOTE the clone list: only `toolCalls` and `notices` are copied, so any NEW
-  // array field on ChatMessage must be added here or React will not see a push.
-  // `pendingApproval` is deliberately an object replaced wholesale, which is why
-  // it needs no entry.
+  // Publish one new message object per event via patchMessage — see its note
+  // on the clone list.
   const makePatch = useCallback(
     (assistantId: string) => (fn: (draft: ChatMessage) => void) =>
-      setMessages((prev) =>
-        prev.map((m) => {
-          if (m.id !== assistantId) return m
-          const draft: ChatMessage = { ...m, toolCalls: [...m.toolCalls], notices: [...m.notices] }
-          fn(draft)
-          return draft
-        }),
-      ),
+      setMessages((prev) => prev?.map((m) => (m.id === assistantId ? patchMessage(m, fn) : m))),
     [],
   )
 
@@ -295,7 +301,7 @@ async function consume(
   }
 }
 
-function applyEvent(
+export function applyEvent(
   event: StreamEvent,
   patch: (fn: (draft: ChatMessage) => void) => void,
   onConversationId?: (id: string) => void,
@@ -311,7 +317,6 @@ function applyEvent(
           callId: event.call_id,
           name: event.name,
           input: event.input,
-          startedAt: Date.now(),
           status: 'running',
         }
         d.toolCalls.push(call)
@@ -323,7 +328,6 @@ function applyEvent(
         const finished = {
           output: event.output,
           isError: event.is_error,
-          durationMs: event.duration_ms,
           status: event.is_error ? ('error' as const) : ('done' as const),
         }
         const idx = d.toolCalls.findIndex((c) => c.callId === event.call_id)
@@ -340,7 +344,6 @@ function applyEvent(
             callId: event.call_id,
             name: event.name,
             input: event.input,
-            startedAt: Date.now() - event.duration_ms,
             ...finished,
           })
         }
@@ -366,13 +369,11 @@ function applyEvent(
       break
 
     case 'done':
+      // The event also carries timing; it is deliberately not stored — the
+      // per-turn duration line was removed from the UI, and /api/metrics is
+      // where those numbers live for whoever needs them.
       patch((d) => {
         d.streaming = false
-        d.timing = {
-          totalMs: event.timing.total_ms,
-          dbMs: event.timing.db_ms,
-          dbSharePct: event.timing.db_share_pct,
-        }
       })
       break
 

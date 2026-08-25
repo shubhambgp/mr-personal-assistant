@@ -4,6 +4,7 @@ import { cx } from '@/lib/cx'
 
 type Variant = 'ghost' | 'subtle' | 'danger' | 'accent'
 
+// biome-ignore format: the aligned columns are deliberate — read as a table
 const VARIANTS: Record<Variant, string> = {
   ghost:  'text-fg-subtle hover:bg-overlay/8 hover:text-fg',
   subtle: 'bg-overlay/6 text-fg-muted hover:bg-overlay/12 hover:text-fg',

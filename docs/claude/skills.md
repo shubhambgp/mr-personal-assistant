@@ -27,6 +27,8 @@ cd backend && .venv/bin/python -m pytest evals -q         # needs a loaded DB
 cd backend && .venv/bin/python -m evals.run_rag_eval      # retrieval: offline, no key
 cd backend && .venv/bin/ruff check .
 cd frontend && npm run typecheck && npm run lint && npm run build
+cd frontend && npm run test                               # vitest, ~2s
+cd frontend && npm run format                             # biome, formatter only
 ```
 
 ## Recipe: add a column to the data model

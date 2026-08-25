@@ -75,3 +75,4 @@ backend/data/literature/*.md
 
 # setup.sh --local writes dev-server pidfiles and logs here
 .dev/
+frontend/.husky/_

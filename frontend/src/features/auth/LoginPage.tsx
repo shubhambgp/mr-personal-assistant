@@ -22,10 +22,15 @@ export function LoginPage() {
     } catch (err) {
       if (err instanceof ApiError && err.status === 429) {
         setError(`Too many attempts. Try again in ${err.retryAfter ?? 60}s.`)
-      } else {
+      } else if (err instanceof ApiError && err.status === 401) {
         // The server does not distinguish wrong-password from unknown-rep, and
         // neither does this message — that is deliberate.
         setError('Invalid credentials.')
+      } else {
+        // A network failure or a 5xx is NOT a credentials problem, and telling
+        // an offline rep their password is wrong sends them to reset a password
+        // that was never wrong.
+        setError('Could not reach the server. Check your connection and try again.')
       }
     } finally {
       setBusy(false)
@@ -61,9 +66,8 @@ export function LoginPage() {
             ready to answer.
           </p>
           <p className="mt-3 max-w-sm text-sm leading-relaxed text-fg-muted">
-            Doctors, visits, literature and your agenda — one assistant, grounded
-            in your own data, with nothing sent to a prescriber unless you
-            approve it.
+            Doctors, visits, literature and your agenda — one assistant, grounded in your own data,
+            with nothing sent to a prescriber unless you approve it.
           </p>
         </div>
 
@@ -97,12 +101,20 @@ export function LoginPage() {
             />
 
             {error && (
-              <p role="alert" className="animate-rise rounded-lg bg-danger/12 px-2.5 py-2 text-2xs text-danger">
+              <p
+                role="alert"
+                className="animate-rise rounded-lg bg-danger/12 px-2.5 py-2 text-2xs text-danger"
+              >
                 {error}
               </p>
             )}
 
-            <Button type="submit" size="lg" disabled={busy || !identifier || !password} className="w-full">
+            <Button
+              type="submit"
+              size="lg"
+              disabled={busy || !identifier || !password}
+              className="w-full"
+            >
               {busy ? <Spinner className="size-4" /> : 'Sign in'}
             </Button>
           </form>

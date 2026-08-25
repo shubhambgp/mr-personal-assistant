@@ -4,7 +4,7 @@
 import { useCallback, useEffect, useState } from 'react'
 
 import { api, ApiError } from '@/lib/api'
-import type { LibraryDocument } from '@/lib/api'
+import type { LibraryDocument } from '@/lib/types'
 
 export function useLibrary(active: boolean) {
   const [documents, setDocuments] = useState<LibraryDocument[] | null>(null)

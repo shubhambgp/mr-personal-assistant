@@ -4,6 +4,13 @@ Applies to everything under `frontend/`.
 
 ## TypeScript
 
+* **`?.` on every array method.** `.map`/`.filter`/`.reduce`/`.forEach`/`.some`
+  /`.every`/`.flatMap` are always written `?.map(…)` etc. On a non-nullable
+  receiver TypeScript treats it as a no-op (the result does not widen), so it is
+  free where unnecessary and enforced where it is not. Two exceptions, both
+  hard: never feed an optional chain into a destructure (`no-unsafe-optional-chaining`
+  fails it — see `lib/format.ts`), and `??.` is a syntax error, not a stronger
+  `?.`. Full reasoning in frontend-practices.md §1.
 * `strict`, no `any`. The SSE event union in `lib/types.ts` mirrors the
   backend's — add a case there and the compiler will find every place that
   needs updating.

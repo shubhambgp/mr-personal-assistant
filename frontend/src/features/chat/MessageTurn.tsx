@@ -43,7 +43,7 @@ function UserTurn({ message }: { message: ChatMessage }) {
       <div className="max-w-[88%] rounded-card rounded-br-md bg-sunken px-3.5 py-2 lg:max-w-[75%]">
         {!!message.attachments?.length && (
           <ul className="mb-2 flex flex-wrap gap-1.5">
-            {message.attachments.map((file, i) => (
+            {message.attachments?.map((file, i) => (
               <li key={`${file.name}-${i}`}>
                 {file.previewUrl ? (
                   <img
@@ -132,7 +132,7 @@ function AssistantTurn({
         </>
       )}
 
-      {message.notices.map((notice, i) => (
+      {message.notices?.map((notice, i) => (
         <p
           key={i}
           role="status"
@@ -154,7 +154,7 @@ function Thinking() {
   return (
     <p className="flex items-center gap-2 text-2xs text-fg-subtle">
       <span className="flex gap-1" aria-hidden="true">
-        {[0, 140, 280].map((delay) => (
+        {[0, 140, 280]?.map((delay) => (
           <span
             key={delay}
             className="animate-wave size-1.5 rounded-full bg-fg-subtle"

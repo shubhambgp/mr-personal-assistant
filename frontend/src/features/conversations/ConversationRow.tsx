@@ -113,7 +113,9 @@ export function ConversationRow({
         aria-current={active ? 'page' : undefined}
         className={cx(
           'relative w-full truncate rounded-lg py-1.5 pl-3 pr-8 text-left text-xs transition-colors',
-          active ? 'bg-accent-soft font-medium text-accent-ink' : 'text-fg-muted hover:bg-overlay/6 hover:text-fg',
+          active
+            ? 'bg-accent-soft font-medium text-accent-ink'
+            : 'text-fg-muted hover:bg-overlay/6 hover:text-fg',
         )}
       >
         {/* A 2px rail growing from zero height: says where you are without a
@@ -165,7 +167,10 @@ export function ConversationRow({
         </IconButton>
 
         <Menu open={menuOpen} side={dropUp ? 'up' : 'down'} onClose={() => setMenuOpen(false)}>
-          <MenuItem onClick={startEditing} icon={<Pencil className="size-3.5" aria-hidden="true" />}>
+          <MenuItem
+            onClick={startEditing}
+            icon={<Pencil className="size-3.5" aria-hidden="true" />}
+          >
             Rename
           </MenuItem>
           <MenuItem

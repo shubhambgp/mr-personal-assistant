@@ -17,46 +17,7 @@ import { BookOpen, ChevronDown } from 'lucide-react'
 import { cx } from '@/lib/cx'
 import type { ToolCall } from '@/lib/types'
 
-interface Source {
-  document: string
-  section: string
-  page: number | null
-  docType: string | null
-}
-
-/** Rows a `search_literature` call returned, deduplicated by document+section. */
-function extractSources(toolCalls: ToolCall[]): Source[] {
-  const out = new Map<string, Source>()
-  for (const call of toolCalls) {
-    if (call.name !== 'search_literature' || !call.output) continue
-    let parsed: unknown
-    try {
-      parsed = JSON.parse(call.output)
-    } catch {
-      continue // a malformed result is not worth a broken panel
-    }
-    if (!parsed || typeof parsed !== 'object') continue
-    const rows = (parsed as { rows?: unknown }).rows
-    if (!Array.isArray(rows)) continue
-    for (const row of rows) {
-      if (!row || typeof row !== 'object') continue
-      const r = row as Record<string, unknown>
-      const document = typeof r.document === 'string' ? r.document : null
-      if (!document) continue
-      const section = typeof r.section === 'string' ? r.section : ''
-      const key = `${document}::${section}`
-      if (!out.has(key)) {
-        out.set(key, {
-          document,
-          section,
-          page: typeof r.page === 'number' ? r.page : null,
-          docType: typeof r.doc_type === 'string' ? r.doc_type : null,
-        })
-      }
-    }
-  }
-  return [...out.values()]
-}
+import { extractSources } from './sources'
 
 const DOC_TYPE_LABEL: Record<string, string> = {
   monograph: 'SmPC',
@@ -91,13 +52,16 @@ export function SourceList({ toolCalls }: { toolCalls: ToolCall[] }) {
         </span>
         <ChevronDown
           aria-hidden="true"
-          className={cx('size-3.5 shrink-0 text-fg-subtle transition-transform', open && 'rotate-180')}
+          className={cx(
+            'size-3.5 shrink-0 text-fg-subtle transition-transform',
+            open && 'rotate-180',
+          )}
         />
       </button>
 
       {open && (
         <ol className="animate-rise space-y-1.5 border-t border-line px-3 py-2.5">
-          {sources.map((source, i) => (
+          {sources?.map((source, i) => (
             <li key={`${source.document}-${source.section}-${i}`} className="flex gap-2 text-2xs">
               <span className="shrink-0 tabular-nums text-fg-subtle">[{i + 1}]</span>
               <span className="min-w-0">

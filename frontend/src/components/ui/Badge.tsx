@@ -11,8 +11,8 @@ const TONES: Record<Tone, string> = {
   neutral: 'bg-overlay/8 text-fg-subtle',
   success: 'bg-success/12 text-success',
   warning: 'bg-warning/12 text-warning',
-  danger:  'bg-danger/12 text-danger',
-  accent:  'bg-accent/12 text-accent-ink',
+  danger: 'bg-danger/12 text-danger',
+  accent: 'bg-accent/12 text-accent-ink',
 }
 
 export function Badge({

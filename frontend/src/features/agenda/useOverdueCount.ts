@@ -16,12 +16,10 @@ export function useOverdueCount(refreshKey: unknown) {
 
   const load = useCallback(async (isCancelled: () => boolean) => {
     try {
-      const list = await api.tasks({
-        status: 'open',
-        important: false,
-        source: null,
-        doctorId: null,
-      })
+      const list = await api.tasks(
+        { status: 'open', important: false, source: null, doctorId: null },
+        1, // counts only — see api.tasks
+      )
       // Checked AFTER the await: the old guard ran before it, so a response
       // landing post-cleanup still wrote state for an unmounted consumer.
       if (!isCancelled()) setOverdue(list.counts.overdue)

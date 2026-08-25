@@ -6,6 +6,7 @@ import { AuthProvider } from '@/features/auth/AuthProvider'
 import '@/styles/index.css'
 
 import App from './App'
+import { ErrorBoundary } from './ErrorBoundary'
 import { ThemeProvider } from './providers/ThemeProvider'
 
 createRoot(document.getElementById('root')!).render(
@@ -13,7 +14,11 @@ createRoot(document.getElementById('root')!).render(
     <ThemeProvider>
       <AuthProvider>
         <BrowserRouter>
-          <App />
+          {/* Inside ThemeProvider so the fallback card gets the tokens; around
+              everything else so no crash below can white-screen the app. */}
+          <ErrorBoundary>
+            <App />
+          </ErrorBoundary>
         </BrowserRouter>
       </AuthProvider>
     </ThemeProvider>

@@ -3,13 +3,7 @@
 import { useEffect, useLayoutEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 
-import {
-  applyTheme,
-  storedMode,
-  systemPrefersDark,
-  THEME_KEY,
-  ThemeContext,
-} from '@/lib/theme'
+import { applyTheme, storedMode, systemPrefersDark, THEME_KEY, ThemeContext } from '@/lib/theme'
 import type { ThemeMode } from '@/lib/theme'
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
@@ -20,8 +14,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   // fall out of step.
   const [systemDark, setSystemDark] = useState(systemPrefersDark)
 
-  const resolved: 'light' | 'dark' =
-    mode === 'system' ? (systemDark ? 'dark' : 'light') : mode
+  const resolved: 'light' | 'dark' = mode === 'system' ? (systemDark ? 'dark' : 'light') : mode
 
   // useLayoutEffect, not useEffect: this runs before paint. The pre-paint
   // script in index.html has already put the right class on <html> using the

@@ -20,6 +20,7 @@ only then implement. Day-to-day changes follow the loop in `development.md`.
 @docs/claude/architecture.md
 @docs/claude/backend.md
 @docs/claude/frontend.md
+@docs/claude/frontend-practices.md
 @docs/claude/development.md
 @docs/claude/new-features.md
 @docs/claude/testing.md

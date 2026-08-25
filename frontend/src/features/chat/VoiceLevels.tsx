@@ -13,11 +13,7 @@ const BAR_COUNT = 5
 //: than looking dead.
 const MIN_SCALE = 0.25
 
-export function VoiceLevels({
-  analyserRef,
-}: {
-  analyserRef: RefObject<AnalyserNode | null>
-}) {
+export function VoiceLevels({ analyserRef }: { analyserRef: RefObject<AnalyserNode | null> }) {
   const barsRef = useRef<(HTMLSpanElement | null)[]>([])
 
   useEffect(() => {
@@ -30,7 +26,7 @@ export function VoiceLevels({
       if (!analyser) {
         // Permission still resolving: gentle idle pulse so the meter is alive.
         const t = performance.now() / 300
-        barsRef.current.forEach((bar, i) => {
+        barsRef.current?.forEach((bar, i) => {
           if (bar) bar.style.transform = `scaleY(${MIN_SCALE + 0.08 * Math.abs(Math.sin(t + i))})`
         })
         return
@@ -56,11 +52,7 @@ export function VoiceLevels({
   }, [analyserRef])
 
   return (
-    <span
-      className="flex h-6 items-center gap-0.5 px-1"
-      role="img"
-      aria-label="Microphone level"
-    >
+    <span className="flex h-6 items-center gap-0.5 px-1" role="img" aria-label="Microphone level">
       {Array.from({ length: BAR_COUNT }, (_, i) => (
         <span
           key={i}

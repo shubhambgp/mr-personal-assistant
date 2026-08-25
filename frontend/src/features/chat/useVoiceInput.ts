@@ -92,7 +92,7 @@ export function useVoiceInput(
   const supported = typeof window !== 'undefined' && recognitionCtor() !== null
 
   const teardownAudio = useCallback(() => {
-    streamRef.current?.getTracks().forEach((track) => track.stop())
+    streamRef.current?.getTracks()?.forEach((track) => track.stop())
     streamRef.current = null
     void audioCtxRef.current?.close().catch(() => undefined)
     audioCtxRef.current = null
@@ -151,7 +151,7 @@ export function useVoiceInput(
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
         // The rep may have stopped dictating before permission resolved.
         if (!recognitionRef.current) {
-          stream.getTracks().forEach((track) => track.stop())
+          stream.getTracks()?.forEach((track) => track.stop())
           return
         }
         const ctx = new AudioContext()
