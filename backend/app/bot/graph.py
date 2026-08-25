@@ -36,8 +36,8 @@ the pause would be swallowed into `{"error": ...}`.
 `approval`, so "the reviewer's verdict exists before the human sees the card" is
 a property of the graph rather than a convention someone can forget.
 
-`run_turn` mirrors `agent.run_turn`'s signature and returns the same
-`TurnResult`, so the API layer and the eval harness use one call site.
+`run_turn` keeps the signature the old hand-rolled loop had and returns the
+same `TurnResult`, so the API layer and the eval harness use one call site.
 Guardrails stay in the API layer where they already live.
 """
 
@@ -45,6 +45,7 @@ from __future__ import annotations
 
 import json
 import time
+from functools import lru_cache
 from typing import Annotated, Any, TypedDict
 
 from langchain_core.messages import (
@@ -61,13 +62,18 @@ from langgraph.prebuilt import ToolNode
 from langgraph.types import Command, interrupt
 
 from ..tools.base import ToolSpec
-from .agent import MAX_TOOL_ROUNDS, ToolTrace, TurnResult, build_instructions
+from . import approval_context
+from .agent import (
+    MAX_TOOL_ROUNDS,
+    OnTextDelta,
+    OnToolEnd,
+    OnToolStart,
+    ToolTrace,
+    TurnResult,
+    build_instructions,
+)
 from .context import RepContext
 from .tool_adapter import editable_args, requires_approval, to_langchain_tools
-
-OnTextDelta = Any
-OnToolStart = Any
-OnToolEnd = Any
 
 #: langgraph's own key for interrupts on the `updates` stream. Spelled out here
 #: rather than imported from a private module because it is a wire contract: the
@@ -128,6 +134,15 @@ class AgentState(TypedDict):
     #: cannot be re-derived from the messages.
     review: dict | None
 
+    #: Ids of the gated calls whose arguments the rep changed at the gate. The
+    #: same exception `review` gets: produced by `approval`, consumed by the
+    #: tools node, and NOT re-derivable from the messages — _apply_edits
+    #: replaces the original arguments in place, so after it runs the transcript
+    #: no longer knows what the model first proposed. The tools node folds it
+    #: into approval_context so services can record edited_by_rep truthfully in
+    #: agenda.outbound_log.
+    edited_call_ids: list[str]
+
 
 def _pending_tool_calls(state: AgentState) -> list[dict]:
     last = state["messages"][-1] if state["messages"] else None
@@ -167,8 +182,13 @@ def _literature_in(state: AgentState) -> list[dict]:
 
 def _apply_edits(
     ai: AIMessage, gated_ids: set[str], edits: dict, by_name: dict
-) -> AIMessage | None:
-    """Rewrites a pending call's arguments in place. Returns None if nothing changed.
+) -> tuple[AIMessage | None, list[str]]:
+    """Rewrites a pending call's arguments in place.
+
+    Returns (message, edited_call_ids) — (None, []) if nothing changed. The ids
+    are reported because after the rewrite the transcript no longer knows the
+    original arguments, and agenda.outbound_log must record truthfully whether
+    a human changed what was sent.
 
     THE SECURITY RULE, and this is the only place it is enforced: an edit may
     change what is SAID and never who it is said TO. The whitelist comes from the
@@ -177,7 +197,7 @@ def _apply_edits(
     `thread_id`, `attendees` and anything the model never declared are absent
     from every whitelist and are therefore dropped, silently and by default.
     """
-    changed = False
+    edited_ids: list[str] = []
     rewritten: list[dict] = []
     for call in ai.tool_calls or []:
         patch = edits.get(call["id"]) or {}
@@ -191,12 +211,12 @@ def _apply_edits(
             }
             if keep and any(call["args"].get(k) != v for k, v in keep.items()):
                 rewritten.append({**call, "args": {**call["args"], **keep}})
-                changed = True
+                edited_ids.append(call["id"])
                 continue
         rewritten.append(call)
 
-    if not changed:
-        return None
+    if not edited_ids:
+        return None, []
 
     # The provider's RAW copy of the arguments is stripped deliberately.
     # langchain-openai builds the Responses payload from `content` /
@@ -212,9 +232,10 @@ def _apply_edits(
             for block in content
             if not (isinstance(block, dict) and block.get("type") in {"function_call", "tool_call"})
         ]
-    return ai.model_copy(
+    merged = ai.model_copy(
         update={"tool_calls": rewritten, "additional_kwargs": kwargs, "content": content}
     )
+    return merged, edited_ids
 
 
 def build_graph(
@@ -333,6 +354,7 @@ def build_graph(
             # round, including read-only ones the rep was never shown — so the
             # model would explain a refusal that never happened.
             return {
+                "edited_call_ids": [],
                 "messages": [
                     ToolMessage(
                         content=(
@@ -348,15 +370,18 @@ def build_graph(
                 ]
             }
 
+        # edited_call_ids is SET on every approval outcome, never merely left —
+        # state persists across rounds in the checkpointer, and a stale True
+        # from an earlier round would mark an untouched send as edited.
         pending_ai = state["messages"][-1] if state["messages"] else None
         if edits and isinstance(pending_ai, AIMessage):
-            merged = _apply_edits(pending_ai, gated_ids, edits, by_name)
+            merged, edited_ids = _apply_edits(pending_ai, gated_ids, edits, by_name)
             if merged is not None:
                 # Same id, so add_messages REPLACES rather than appends and the
                 # transcript order survives. ToolNode then dispatches the edited
                 # arguments (verified against langgraph 1.2.11).
-                return {"messages": [merged]}
-        return {}
+                return {"messages": [merged], "edited_call_ids": edited_ids}
+        return {"edited_call_ids": []}
 
     async def cap(state: AgentState) -> dict:
         """The tool-round backstop, reported rather than silently truncated.
@@ -422,10 +447,26 @@ def build_graph(
             return "review"
         return "tools"
 
+    tool_node = ToolNode(tools)
+
+    async def tools_with_context(state: AgentState) -> dict:
+        """ToolNode, with the round's approval context set for the handlers.
+
+        Handlers receive only their schema arguments, and neither of these may
+        BE a schema argument (the model composes those — CLAUDE.md §1.2), so
+        they travel out-of-band: set here, in the node that dispatches, and read
+        back by the gated agenda handlers. ContextVars set in this coroutine
+        propagate into the child tasks ToolNode creates, because children copy
+        the context at creation — which happens after the set.
+        """
+        approval_context.turn_passages.set(tuple(_literature_in(state)))
+        approval_context.turn_edited.set(bool(state.get("edited_call_ids")))
+        return await tool_node.ainvoke(state)
+
     builder = StateGraph(AgentState)
     builder.add_node("agent", agent)
     builder.add_node("agenda", agenda)
-    builder.add_node("tools", ToolNode(tools))
+    builder.add_node("tools", tools_with_context)
     builder.add_node("review", review)
     builder.add_node("approval", approval)
     builder.add_node("cap", cap)
@@ -477,6 +518,34 @@ def build_user_message(user_message: str, images: list[dict] | None = None) -> H
     return HumanMessage(content=content)
 
 
+@lru_cache(maxsize=4)
+def _default_llm(model: str) -> ChatOpenAI:
+    """The production model client, built once per model name.
+
+    ChatOpenAI is a stateless wrapper around a pooled HTTP client, and building
+    a fresh one per turn threw the connection pool away every time. Cached here
+    rather than at import so tests that inject `llm` never touch it.
+    """
+    from ..config import settings
+
+    return ChatOpenAI(
+        model=model,
+        # Passed explicitly from settings, NOT left to ChatOpenAI's environment
+        # lookup. pydantic-settings reads .env into `settings` without exporting
+        # to os.environ, so the env fallback finds nothing under uvicorn. The
+        # eval harness happened to work because it calls load_dotenv() itself —
+        # which is exactly why the HTTP path needed testing separately.
+        api_key=settings.openai_api_key,
+        use_responses_api=True,
+        reasoning={"effort": "medium"},
+        # Pinned rather than left to the default (currently None, i.e. classic
+        # string content). langchain-openai only branches on "v1", so this is a
+        # no-op today — but it stops a future default flip to content-block
+        # output from silently changing what the streaming reader sees.
+        output_version="v0",
+    )
+
+
 async def _drive(
     *,
     entry: Any,
@@ -513,22 +582,7 @@ async def _drive(
             raise RuntimeError(
                 "OPENAI_API_KEY is not set — the chat endpoint cannot run without it."
             )
-        llm = ChatOpenAI(
-            model=model or DEFAULT_MODEL,
-            # Passed explicitly from settings, NOT left to ChatOpenAI's environment
-            # lookup. pydantic-settings reads .env into `settings` without exporting
-            # to os.environ, so the env fallback finds nothing under uvicorn. The
-            # eval harness happened to work because it calls load_dotenv() itself —
-            # which is exactly why the HTTP path needed testing separately.
-            api_key=settings.openai_api_key,
-            use_responses_api=True,
-            reasoning={"effort": "medium"},
-            # Pinned rather than left to the default (currently None, i.e. classic
-            # string content). langchain-openai only branches on "v1", so this is a
-            # no-op today — but it stops a future default flip to content-block
-            # output from silently changing what the streaming reader below sees.
-            output_version="v0",
-        )
+        llm = _default_llm(model or DEFAULT_MODEL)
     # NOTE on prompt_cache_key: it is passed at *invoke* time in the agent node,
     # not here, because it varies per rep. Verified in ENGINEERING_LOG 15 to
     # reach the request payload. It partitions OpenAI's prompt cache per rep so
@@ -682,7 +736,7 @@ async def run_turn(
     agenda_tools: frozenset[str] = frozenset(),
     reviewer: Any = None,
 ) -> TurnResult:
-    """One full turn. Mirrors `agent.run_turn`'s contract so the API layer and
+    """One full turn. Keeps the old loop's contract so the API layer and
     the eval harness can switch engines at a single call site.
 
     `llm` is accepted so a test can drive the real transport with a scripted
@@ -690,7 +744,11 @@ async def run_turn(
     streaming and interrupt plumbing was never testable without spending money.
     """
     return await _drive(
-        entry={"messages": [build_user_message(user_message, images)], "rounds": 0},
+        entry={
+            "messages": [build_user_message(user_message, images)],
+            "rounds": 0,
+            "edited_call_ids": [],
+        },
         ctx=ctx,
         tool_specs=tool_specs,
         thread_id=thread_id,

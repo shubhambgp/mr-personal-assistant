@@ -167,16 +167,22 @@ class SqlToolProvider:
 
     name = "sql"
 
-    def get_tools(self, ctx: RepContext, conn) -> list[ToolSpec]:
+    def get_tools(self, ctx: RepContext, db) -> list[ToolSpec]:
         chair_id = ctx.chair_id
         denied_pattern = _base_relations_pattern()
 
         # --- query helpers -------------------------------------------------
         # psycopg is synchronous; to_thread keeps one slow query from stalling
         # every other request's event-loop turn.
+        #
+        # `db` is the read-only POOL. A connection is checked out per call and
+        # released before the handler returns — the previous shape pinned one
+        # connection for the whole SSE turn, so ten concurrent chats exhausted
+        # a ten-connection pool while the database sat ~97.5% idle waiting on
+        # the model. A checkout is microseconds; the turn is tens of seconds.
 
         def _fetch(sql: str, params: tuple = ()) -> list[dict]:
-            with conn.cursor(row_factory=dict_row) as cur:
+            with db.connection() as conn, conn.cursor(row_factory=dict_row) as cur:
                 cur.execute(sql, params)
                 return cur.fetchall()
 
@@ -197,10 +203,14 @@ class SqlToolProvider:
 
         # --- tools ---------------------------------------------------------
 
+        def _find_doctor_sync(name: str) -> list[dict]:
+            # resolve takes a connection, not a pool — checked out only for
+            # the duration of the lookup.
+            with db.connection() as conn:
+                return resolve.find_doctor_candidates(conn, chair_id, name)
+
         async def find_doctor(name: str) -> str:
-            candidates = await asyncio.to_thread(
-                resolve.find_doctor_candidates, conn, chair_id, name
-            )
+            candidates = await asyncio.to_thread(_find_doctor_sync, name)
             return json.dumps({"candidates": candidates}, default=str)
 
         async def get_doctor_brief(doctor_id: int) -> str:
@@ -619,7 +629,11 @@ class SqlToolProvider:
             def _run() -> list[dict]:
                 # SET LOCAL needs a transaction; Postgres then cancels the query
                 # itself when it overruns, and the setting reverts on commit.
-                with conn.transaction(), conn.cursor(row_factory=dict_row) as cur:
+                with (
+                    db.connection() as conn,
+                    conn.transaction(),
+                    conn.cursor(row_factory=dict_row) as cur,
+                ):
                     cur.execute(
                         f"SET LOCAL statement_timeout = {settings.run_sql_timeout_ms}"
                     )

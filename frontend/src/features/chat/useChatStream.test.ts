@@ -126,7 +126,7 @@ describe('applyEvent', () => {
       conversation_id: 'c',
       response_id: null,
       usage: { input_tokens: 1, output_tokens: 1, cached_tokens: 0 },
-      timing: { total_ms: 100, db_ms: 5, db_share_pct: 5 },
+      timing: { total_ms: 100, tool_ms: 5, tool_share_pct: 5 },
     })
     expect(next.streaming).toBe(false)
     // The duration UI was removed on purpose; timing must not creep back in.

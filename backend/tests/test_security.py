@@ -116,3 +116,29 @@ def test_rate_limiter_blocks_after_the_cap_and_resets():
     assert limiter.check("5.6.7.8")
     limiter.reset("1.2.3.4")
     assert limiter.check("1.2.3.4")
+
+
+def test_rate_limiter_sweeps_expired_keys():
+    """Keys are evicted once their window expires, not kept forever.
+
+    The login limiter is keyed on client-supplied identifier strings, so before
+    the sweep an unauthenticated caller cycling random identifiers grew the
+    table without bound — reset() only fires on a successful login, and pruning
+    only ever touched the key being checked.
+    """
+    limiter = RateLimiter(max_attempts=3, window_seconds=60)
+    limiter._SWEEP_AT = 8  # keep the test small; production keeps 4096
+
+    for i in range(8):
+        assert limiter.check(f"identifier-{i}")
+    assert len(limiter._hits) == 8
+
+    # All eight windows expire; the next check crosses the threshold and sweeps.
+    for window in limiter._hits.values():
+        window[0] -= 61
+    assert limiter.check("fresh-key")
+    assert set(limiter._hits) == {"fresh-key"}
+
+    # Behaviour for a live key is untouched by the sweep machinery.
+    assert all(limiter.check("live") for _ in range(3))
+    assert not limiter.check("live")

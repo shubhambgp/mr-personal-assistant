@@ -200,25 +200,60 @@ report_untracked() {
   warn "Stop them by hand if a later step complains:  kill$found"
 }
 
+# A SOCKET check, not an HTTP request. An HTTP probe cannot tell "nothing is
+# listening" from "something is listening but did not answer HTTP in 2s", and
+# that false "free" was the expensive one: vite finds the port taken, quietly
+# moves to 5174, and wait_for then polls 5173 for a full minute before printing
+# "full log: .dev/frontend.log" about a server that started perfectly.
+port_in_use() {  # $1 = port; returns 0 when something is listening
+  if command -v ss >/dev/null 2>&1; then
+    ss -tln 2>/dev/null | grep -qE "[:.]$1[[:space:]]"
+  elif command -v lsof >/dev/null 2>&1; then
+    lsof -iTCP:"$1" -sTCP:LISTEN -t >/dev/null 2>&1
+  else
+    # No socket tool (a minimal image): back to the HTTP probe and its blind spot.
+    curl -s -o /dev/null --max-time 2 "http://127.0.0.1:$1/" 2>/dev/null
+  fi
+}
+
 port_free_or_fail() {  # $1 = port
-  if curl -s -o /dev/null --max-time 2 "http://127.0.0.1:$1/" 2>/dev/null; then
+  if port_in_use "$1"; then
     warn "Something this script did not start is already listening on port $1."
     fail "Stop it first (e.g. pkill -f uvicorn / pkill -f vite), then re-run."
   fi
 }
 
-wait_for() {  # $1 = url, $2 = name, $3 = log file
+wait_for() {  # $1 = url, $2 = human name, $3 = process name (backend|frontend)
+  log="$DEV_DIR/$3.log"
+  pidfile="$DEV_DIR/$3.pid"
+  # BOTH loopback spellings. Vite is started on `localhost` and binds whatever
+  # that resolves to FIRST, which is ::1 on some hosts — so a probe hardcoded to
+  # 127.0.0.1 polls a port nothing is listening on, times out, and blames the
+  # server. Trying both costs one extra curl per second and removes the whole
+  # class of "it says it failed but the app is open in my browser".
+  alt="${1/127.0.0.1/localhost}"
   printf '  waiting for %s ' "$2"
   for _ in $(seq 1 60); do
-    if curl -s -o /dev/null --max-time 2 "$1" 2>/dev/null; then
+    if curl -s -o /dev/null --max-time 2 "$1" 2>/dev/null \
+       || curl -s -o /dev/null --max-time 2 "$alt" 2>/dev/null; then
       printf '\n'; ok "$2 is up"; return 0
+    fi
+    # It already died: say so NOW rather than after 60 more seconds of dots.
+    # The recorded pid is the server itself — setsid execs rather than forking
+    # when it is not already a group leader (checked), which is the same
+    # assumption stop_servers makes.
+    if [ -f "$pidfile" ] && ! kill -0 "$(cat "$pidfile")" 2>/dev/null; then
+      printf '\n'
+      warn "$2 exited during startup — last lines of its log:"
+      tail -15 "$log" | sed 's/^/    /'
+      fail "full log: $log"
     fi
     printf '.'; sleep 1
   done
   printf '\n'
   warn "$2 did not come up — last lines of its log:"
-  tail -15 "$3" | sed 's/^/    /'
-  fail "full log: $3"
+  tail -15 "$log" | sed 's/^/    /'
+  fail "full log: $log"
 }
 
 # setsid puts the server in its own session so stop_servers can kill the whole
@@ -242,11 +277,11 @@ start_servers() {
 
   bold "6/7 Starting the backend (uvicorn, http://localhost:8000)…"
   start_one backend backend ./.venv/bin/uvicorn app.main:app --reload --port 8000
-  wait_for "http://127.0.0.1:8000/api/health" "the API" "$DEV_DIR/backend.log"
+  wait_for "http://127.0.0.1:8000/api/health" "the API" backend
 
   bold "7/7 Starting the frontend (vite, http://localhost:5173)…"
   start_one frontend frontend npm run dev
-  wait_for "http://127.0.0.1:5173/" "the web app" "$DEV_DIR/frontend.log"
+  wait_for "http://127.0.0.1:5173/" "the web app" frontend
 
   echo
   bold "Done — everything is running."
@@ -378,6 +413,10 @@ case "${1:-}" in
     # not have to remember which mode they started it in.
     bold "Stopping…"
     stop_servers
+    # A server we have no pidfile for keeps running, and "done" over a still-live
+    # port is the lie that sends people into the next run wondering why the
+    # frontend "did not come up". Name the PIDs instead of claiming success.
+    report_untracked
     if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
       if [ -n "$(docker compose ps -q 2>/dev/null)" ]; then
         docker compose down

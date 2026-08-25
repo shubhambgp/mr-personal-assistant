@@ -25,6 +25,7 @@ import logging
 from .bot import db
 from .bot.audit import audit_logger
 from .bot.checkpointer import close_checkpointer, open_checkpointer
+from .integrations.google.client import close_http
 from .services.vectors import close_vectors, open_vectors
 from .services.vectors import count as corpus_size
 
@@ -51,5 +52,6 @@ async def close_resources(*, audit: bool = True) -> None:
     if audit:
         await audit_logger.stop()
     await close_checkpointer()
+    await close_http()
     close_vectors()
     db.close_pools()

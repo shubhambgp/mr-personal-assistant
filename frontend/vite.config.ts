@@ -20,6 +20,10 @@ export default defineConfig({
   },
   server: {
     port: 5173,
+    // Fail loudly when 5173 is taken instead of quietly moving to 5174: the
+    // proxy below, setup.sh's readiness probe and every printed URL all name
+    // 5173, so a silent port change looks like a server that never started.
+    strictPort: true,
     // The API is same-origin through this proxy in dev, so the httpOnly session
     // cookie is sent without any CORS/SameSite special-casing.
     proxy: {

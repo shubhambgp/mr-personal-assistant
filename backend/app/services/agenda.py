@@ -22,6 +22,7 @@ because the absence is the security property.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 from dataclasses import dataclass
@@ -487,10 +488,19 @@ async def _items_from_ids(
     """
     now = datetime.now(UTC)
     items: list[TriageItem] = []
-    with db.ro_pool().connection() as pg:
-        for thread_id in ids:
+
+    # The fetches run CONCURRENTLY, bounded to eight in flight: they were awaited
+    # one by one, so a 25-thread triage was 25 serial round trips and the panel's
+    # cold load was pure network latency. gather() preserves input order, so the
+    # rest of this function sees the same sequence it always did.
+    fetch_cap = asyncio.Semaphore(8)
+
+    async def _fetch_one(thread_id: str) -> dict | None:
+        async with fetch_cap:
             try:
-                raw = await gmail.get_thread(token, thread_id=thread_id, metadata_only=metadata_only)
+                return await gmail.get_thread(
+                    token, thread_id=thread_id, metadata_only=metadata_only
+                )
             except GoogleError:
                 # One unreadable thread must not lose the whole list.
                 #
@@ -500,6 +510,13 @@ async def _items_from_ids(
                 # unreadable thread, used to crash the whole triage list the first
                 # time one appeared. tests/test_logging_extras.py guards it now.
                 log.warning("could not read thread", extra={"thread_id": thread_id})
+                return None
+
+    fetched = await asyncio.gather(*(_fetch_one(i) for i in ids))
+
+    with db.ro_pool().connection() as pg:
+        for raw in fetched:
+            if raw is None:
                 continue
             thread = gmail.parse_thread(raw, me=conn_row.email_account)
             category, days, reason = classify(thread, me=conn_row.email_account, now=now)
@@ -1015,7 +1032,6 @@ def record_outbound(
     folder proves a mail went out, and only this proves a human was shown a
     compliance verdict and said yes to it.
     """
-    import json
 
     with db.rw_pool().connection() as conn, conn.cursor() as cur:
         cur.execute(
@@ -1055,6 +1071,7 @@ async def send_mail(
     body: str,
     conversation_id: str | None = None,
     passages: list[dict] | None = None,
+    edited_by_rep: bool = False,
 ) -> str:
     """Send one mail. Reached only after a human approved it.
 
@@ -1063,8 +1080,13 @@ async def send_mail(
     deterministic rules re-run on the FINAL bytes — otherwise an edit could put
     back exactly the claim the reviewer removed. Whichever way the transport is
     wired, nothing reaches Gmail without passing this.
+
+    `passages` are the search_literature rows retrieved THIS turn — without them
+    every clinical claim in the body reads as uncited and the check above blocks
+    it, so the compliant cited flow depends on the caller threading them through
+    (app/bot/approval_context.py). `edited_by_rep` is recorded, never acted on:
+    the check runs on the final bytes either way.
     """
-    import json
 
 
     token, conn_row = await _access_token(ctx)
@@ -1079,11 +1101,32 @@ async def send_mail(
 
     thread_text = ""
     doctor_id = None
+    in_reply_to = None
     if thread_id:
         try:
-            detail = await thread_detail(ctx, thread_id=thread_id)
-            doctor_id = detail.get("doctor_id")
-            thread_text = "\n".join(m.get("body") or "" for m in detail.get("messages") or [])
+            # Fetched and parsed ONCE — thread text, the doctor link and the
+            # reply headers all come from this parse. (This used to go through
+            # thread_detail, which re-resolved the access token and threw the
+            # Message-ID away, so replies carried no In-Reply-To/References and
+            # never threaded in the recipient's non-Gmail client.)
+            raw = await gmail.get_thread(
+                token, thread_id=thread_id, metadata_only=not conn_row.can_read_bodies
+            )
+            thread = gmail.parse_thread(raw, me=conn_row.email_account)
+            thread_text = "\n".join(m.body or "" for m in thread.messages)
+            last = thread.last
+            in_reply_to = (last.rfc_message_id or None) if last else None
+            # The doctor link is a nicety for the outbound log, NOT a safety
+            # input — its own failure must not refuse the send, so it gets a
+            # narrow try of its own, matching _link_doctor's philosophy.
+            try:
+                counterparty = thread.counterparty
+                with db.ro_pool().connection() as pg:
+                    doctor_id, _doctor_name = _link_doctor(
+                        pg, ctx.chair_id, counterparty.from_name if counterparty else ""
+                    )
+            except Exception:  # noqa: BLE001 — the log row just loses its doctor_id
+                log.warning("doctor linking failed for outbound log", exc_info=True)
         except Exception as exc:  # noqa: BLE001 — see below; the class does not matter
             # REFUSE rather than send without it. This used to swallow the failure
             # and continue with thread_text="", which fails OPEN on the most
@@ -1121,7 +1164,7 @@ async def send_mail(
             subject=subject,
             body=body,
             compliance=verdict,
-            edited_by_rep=False,
+            edited_by_rep=edited_by_rep,
             conversation_id=conversation_id,
             doctor_id=doctor_id,
             thread_id=thread_id,
@@ -1134,7 +1177,6 @@ async def send_mail(
             }
         )
 
-    in_reply_to = None
     try:
         sent = await gmail.send(
             token,
@@ -1154,7 +1196,7 @@ async def send_mail(
             subject=subject,
             body=body,
             compliance=verdict,
-            edited_by_rep=False,
+            edited_by_rep=edited_by_rep,
             conversation_id=conversation_id,
             doctor_id=doctor_id,
             thread_id=thread_id,
@@ -1170,7 +1212,7 @@ async def send_mail(
         subject=subject,
         body=body,
         compliance=verdict,
-        edited_by_rep=False,
+        edited_by_rep=edited_by_rep,
         conversation_id=conversation_id,
         doctor_id=doctor_id,
         thread_id=thread_id,
@@ -1200,10 +1242,9 @@ async def create_calendar_event(
     doctor_id: int | None = None,
     conversation_id: str | None = None,
     passages: list[dict] | None = None,
+    edited_by_rep: bool = False,
 ) -> str:
     """Create one event. Reached only after a human approved it."""
-    import json
-    from zoneinfo import ZoneInfo
 
 
     token, conn_row = await _access_token(ctx)
@@ -1278,7 +1319,7 @@ async def create_calendar_event(
             subject=title,
             body=notes,
             compliance=verdict,
-            edited_by_rep=False,
+            edited_by_rep=edited_by_rep,
             conversation_id=conversation_id,
             doctor_id=doctor_id,
             error=str(exc),
@@ -1293,7 +1334,7 @@ async def create_calendar_event(
         subject=title,
         body=notes,
         compliance=verdict,
-        edited_by_rep=False,
+        edited_by_rep=edited_by_rep,
         conversation_id=conversation_id,
         doctor_id=doctor_id,
         provider_message_id=str(created.get("id") or ""),
@@ -1363,6 +1404,7 @@ async def update_calendar_event(
     notify: bool = True,
     conversation_id: str | None = None,
     passages: list[dict] | None = None,
+    edited_by_rep: bool = False,
 ) -> str:
     """Reschedule or re-word an event. Reached only after a human approved it.
 
@@ -1371,7 +1413,6 @@ async def update_calendar_event(
     is already planning to attend and NOT telling them is how a doctor sits in an
     empty room.
     """
-    import json
 
 
     token, conn_row = await _access_token(ctx)
@@ -1427,7 +1468,7 @@ async def update_calendar_event(
             subject=title or existing["title"],
             body=notes,
             compliance=verdict,
-            edited_by_rep=False,
+            edited_by_rep=edited_by_rep,
             conversation_id=conversation_id,
             error=str(exc),
         )
@@ -1441,7 +1482,7 @@ async def update_calendar_event(
         subject=title or existing["title"],
         body=notes,
         compliance=verdict,
-        edited_by_rep=False,
+        edited_by_rep=edited_by_rep,
         conversation_id=conversation_id,
         provider_message_id=event_id,
     )
@@ -1471,7 +1512,6 @@ async def cancel_calendar_event(
     logged to outbound_log all the same: "we told a doctor the meeting is off" is
     exactly the kind of contact that log exists to record.
     """
-    import json
 
     token, _ = await _access_token(ctx)
     existing = await resolve_event(ctx, event_id=event_id)
@@ -1492,7 +1532,7 @@ async def cancel_calendar_event(
             subject=existing["title"],
             body=None,   # Google composes the cancellation; there is no text of ours
             compliance={"verdict": "clear", "findings": [], "reviewed_by": "cancellation"},
-            edited_by_rep=False,
+            edited_by_rep=False,  # nothing is editable on a cancellation
             conversation_id=conversation_id,
             error=str(exc),
         )
@@ -1506,7 +1546,7 @@ async def cancel_calendar_event(
         subject=f"Cancelled: {existing['title']}",
         body=None,
         compliance={"verdict": "clear", "findings": [], "reviewed_by": "cancellation"},
-        edited_by_rep=False,
+        edited_by_rep=False,  # nothing is editable on a cancellation
         conversation_id=conversation_id,
         provider_message_id=event_id,
     )
@@ -1543,6 +1583,7 @@ async def schedule_task(
     starts_at: str,
     duration_minutes: int = 30,
     conversation_id: str | None = None,
+    edited_by_rep: bool = False,
 ) -> str:
     """Put a task on the rep's calendar as a private time-block.
 
@@ -1555,7 +1596,6 @@ async def schedule_task(
     Still gated, because it writes to a calendar the rep carries on their phone
     and which colleagues may see through free/busy.
     """
-    import json
 
     task = read_task(ctx, task_id=task_id)
     if task is None:
@@ -1577,6 +1617,7 @@ async def schedule_task(
         notify=False,
         doctor_id=task["doctor_id"],
         conversation_id=conversation_id,
+        edited_by_rep=edited_by_rep,
     )
     result = json.loads(payload)
     if result.get("error"):

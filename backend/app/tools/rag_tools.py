@@ -51,8 +51,8 @@ _CITE = (
 class RagToolProvider:
     name = "rag"
 
-    def get_tools(self, ctx: RepContext, conn) -> list[ToolSpec]:
-        del conn  # the corpus is in Qdrant; the Postgres connection is unused
+    def get_tools(self, ctx: RepContext, db) -> list[ToolSpec]:
+        del db  # the corpus is in Qdrant; the Postgres pool is unused
 
         async def search_literature(
             query: str,

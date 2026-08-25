@@ -27,7 +27,7 @@ services:
       RO_PASSWORD: ${RO_PASSWORD:-qorvexa_ro}
       POSTGRES_DB: qorvexa
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - pgdata:/var/lib/postgresql
       # Applied in order on first init only. All four schemas are mounted so a
       # fresh volume comes up complete — previously only chat_history was, so the
       # graph checkpointer and the agenda tables were silently missing until

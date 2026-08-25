@@ -121,7 +121,7 @@ def test_naming_the_other_reps_brand_does_not_reveal_it(store, monkeypatch):
         lambda: type("C", (), {"embeddings": _Embeddings()})(),
     )
     spec = next(
-        s for s in RagToolProvider().get_tools(REP_B, conn=None)
+        s for s in RagToolProvider().get_tools(REP_B, db=None)
         if s["name"] == "search_literature"
     )
     raw = asyncio.run(
@@ -153,7 +153,7 @@ def test_the_tool_output_itself_carries_no_foreign_text(store, monkeypatch):
         lambda: type("C", (), {"embeddings": _FakeEmbeddings()})(),
     )
     spec = next(
-        s for s in RagToolProvider().get_tools(REP_B, conn=None)
+        s for s in RagToolProvider().get_tools(REP_B, db=None)
         if s["name"] == "search_literature"
     )
     raw = asyncio.run(
@@ -199,7 +199,7 @@ async def test_read_document_cannot_read_another_reps_upload(store):
 
     handler = next(
         s["handler"]
-        for s in RagToolProvider().get_tools(REP_B, conn=None)
+        for s in RagToolProvider().get_tools(REP_B, db=None)
         if s["name"] == "read_document"
     )
 

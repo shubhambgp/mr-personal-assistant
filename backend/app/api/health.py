@@ -51,19 +51,23 @@ def health() -> dict:
         log.error("health check failed", extra={"check": "qdrant"})
 
     # Presence only — never call the model from a health check.
-    checks["openai_key"] = "set" if settings.openai_api_key else "missing"
+    checks["openai_key"] = "ok" if settings.openai_api_key else "missing"
     if not settings.openai_api_key:
         healthy = False
 
+    # The check runs (an unloadable manifest must degrade), but only its VERDICT
+    # is reported. This endpoint is unauthenticated, and the relation count —
+    # like the environment name it used to sit next to — is a fact inventory for
+    # whoever is probing, not a health signal for a load balancer.
     try:
-        checks["manifest_relations"] = str(len(schema.base_relations()))
+        schema.base_relations()
+        checks["manifest"] = "ok"
     except Exception as exc:  # noqa: BLE001
-        checks["manifest_relations"] = f"error: {type(exc).__name__}"
+        checks["manifest"] = f"error: {type(exc).__name__}"
         healthy = False
 
     return {
         "status": "ok" if healthy else "degraded",
-        "environment": settings.environment,
         "checks": checks,
     }
 

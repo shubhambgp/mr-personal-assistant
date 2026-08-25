@@ -47,7 +47,7 @@ def _spec(**over) -> ToolSpec:
 
 def test_every_real_tool_survives_adaptation():
     """All ten SQL tools convert, with names and schemas intact."""
-    with_conn = registry.build(CTX, conn=None)
+    with_conn = registry.build(CTX, db=None)
     tools = to_langchain_tools(with_conn)
 
     assert len(tools) == len(with_conn)
@@ -123,7 +123,7 @@ def test_exactly_the_write_capable_tools_are_gated(monkeypatch):
     read-only tool acquiring a gate it does not need — which would train the rep
     to click through approvals and weaken the gate that counts.
     """
-    tools = to_langchain_tools(registry.build(_connected(monkeypatch), conn=None))
+    tools = to_langchain_tools(registry.build(_connected(monkeypatch), db=None))
     assert {t.name for t in tools if requires_approval(t)} == GATED_TOOLS
 
     # Stated positively too, so a shrinking GATED_TOOL_NAMES cannot make this
@@ -139,7 +139,7 @@ def test_exactly_the_write_capable_tools_are_gated(monkeypatch):
 
 def test_the_task_tools_are_deliberately_not_gated(monkeypatch):
     """A private to-do is not a regulated action and nothing leaves the app."""
-    tools = to_langchain_tools(registry.build(_connected(monkeypatch), conn=None))
+    tools = to_langchain_tools(registry.build(_connected(monkeypatch), db=None))
     by_name = {t.name: t for t in tools}
     for name in ("create_task", "complete_task", "list_tasks"):
         assert not requires_approval(by_name[name]), name
@@ -149,7 +149,7 @@ def test_only_content_fields_are_editable_at_the_approval_gate(monkeypatch):
     """The whitelist IS the security boundary for an edit, so it is asserted both
     ways: what may be edited, and what must never appear in the list whatever a
     future provider declares."""
-    tools = {t.name: t for t in to_langchain_tools(registry.build(_connected(monkeypatch), conn=None))}
+    tools = {t.name: t for t in to_langchain_tools(registry.build(_connected(monkeypatch), db=None))}
     assert set(editable_args(tools["send_email"])) == {"subject", "body"}
     # cancel_event has NOTHING editable: there is no content, only a decision.
     assert set(editable_args(tools["cancel_event"])) == set()
@@ -176,7 +176,7 @@ def test_only_content_fields_are_editable_at_the_approval_gate(monkeypatch):
 def test_an_ungated_tool_has_no_editable_fields(monkeypatch):
     """Nothing to approve means nothing to edit. Absent by default, so a newly
     gated tool is read-only until someone deliberately says otherwise."""
-    tools = to_langchain_tools(registry.build(_connected(monkeypatch), conn=None))
+    tools = to_langchain_tools(registry.build(_connected(monkeypatch), db=None))
     for tool in tools:
         if not requires_approval(tool):
             assert editable_args(tool) == (), tool.name
@@ -203,4 +203,4 @@ def test_the_registry_still_rejects_a_scope_parameter():
             })]
 
     with pytest.raises(ValueError, match="chair_id"):
-        ToolRegistry([Bad()]).build(CTX, conn=None)
+        ToolRegistry([Bad()]).build(CTX, db=None)

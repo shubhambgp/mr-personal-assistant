@@ -24,9 +24,12 @@ pytestmark = pytest.mark.requires_db
 def run_sql(db_pools, first_chair):
     chair_id, rep_code, rep_name = first_chair
     ctx = RepContext(chair_id=chair_id, rep_code=rep_code, rep_name=rep_name or "Rep")
-    with db_pools.ro_pool().connection() as conn:
-        specs = {s["name"]: s["handler"] for s in SqlToolProvider().get_tools(ctx, conn)}
-        yield specs["run_sql"], chair_id
+    # The POOL, as the HTTP path passes it — handlers check out per call.
+    specs = {
+        s["name"]: s["handler"]
+        for s in SqlToolProvider().get_tools(ctx, db_pools.ro_pool())
+    }
+    return specs["run_sql"], chair_id
 
 
 async def test_select_star_returns_rows_but_no_pii(run_sql):

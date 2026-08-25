@@ -30,14 +30,13 @@ def _transport(status: int, body: dict | str):
 
 
 async def _call(monkeypatch, status: int, body: dict | str) -> GoogleError:
-    transport = _transport(status, body)
-    original = httpx.AsyncClient
+    # The module holds ONE shared client now; inject the transport by replacing
+    # it directly. monkeypatch restores the previous value after the test.
+    from app.integrations.google import client as google_client
 
-    def patched(*args, **kwargs):
-        kwargs["transport"] = transport
-        return original(*args, **kwargs)
-
-    monkeypatch.setattr(httpx, "AsyncClient", patched)
+    monkeypatch.setattr(
+        google_client, "_client", httpx.AsyncClient(transport=_transport(status, body))
+    )
     with pytest.raises(GoogleError) as caught:
         await request("POST", "https://oauth2.googleapis.com/token", form={"x": "y"})
     return caught.value

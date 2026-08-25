@@ -36,6 +36,6 @@ CONFIG_PATH = Path(__file__).resolve().parents[2] / "etl" / "mcp_servers.yaml"
 class McpToolProvider:
     name = "mcp"
 
-    def get_tools(self, ctx: RepContext, conn) -> list[ToolSpec]:
-        del ctx, conn  # nothing yet; signature is the contract
+    def get_tools(self, ctx: RepContext, db) -> list[ToolSpec]:
+        del ctx, db  # nothing yet; signature is the contract
         return []

@@ -105,20 +105,20 @@ async def run_case(case: dict) -> tuple[bool, str, list[dict]]:
 
     vintage = ", ".join(sorted({v for _t, v, _n in db.data_vintage()})) or "unknown"
 
-    with db.ro_pool().connection() as conn:
-        result = await graph.run_turn(
-            ctx=ctx,
-            tool_specs=registry.build(ctx, conn),
-            user_message=case["question"],
-            # A fresh thread per case: the eval measures single-turn behaviour,
-            # so leaking state between cases would make results order-dependent.
-            thread_id=str(uuid.uuid4()),
-            vintage_summary=vintage,
-            on_text_delta=on_text_delta,
-            on_tool_start=on_tool_start,
-            on_tool_end=on_tool_end,
-            checkpointer=checkpointer(),
-        )
+    # The POOL, exactly as the HTTP path passes it — handlers check out per call.
+    result = await graph.run_turn(
+        ctx=ctx,
+        tool_specs=registry.build(ctx, db.ro_pool()),
+        user_message=case["question"],
+        # A fresh thread per case: the eval measures single-turn behaviour,
+        # so leaking state between cases would make results order-dependent.
+        thread_id=str(uuid.uuid4()),
+        vintage_summary=vintage,
+        on_text_delta=on_text_delta,
+        on_tool_start=on_tool_start,
+        on_tool_end=on_tool_end,
+        checkpointer=checkpointer(),
+    )
 
     failures = check(result.final_text, case)
     return not failures, result.final_text if failures else "", trace if failures else []

@@ -51,9 +51,9 @@ def run_sql(db_pools, first_chair):
 
     chair_id, rep_code, rep_name = first_chair
     ctx = RepContext(chair_id=chair_id, rep_code=rep_code, rep_name=rep_name)
-    with db_pools.ro_pool().connection() as conn:
-        specs = {s["name"]: s for s in SqlToolProvider().get_tools(ctx, conn)}
-        yield specs["run_sql"]["handler"], ctx
+    # The POOL, as the HTTP path passes it — handlers check out per call.
+    specs = {s["name"]: s for s in SqlToolProvider().get_tools(ctx, db_pools.ro_pool())}
+    return specs["run_sql"]["handler"], ctx
 
 
 async def test_run_sql_cannot_reach_the_agenda_schema(run_sql):

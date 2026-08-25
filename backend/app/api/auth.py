@@ -74,17 +74,27 @@ def login(
                 headers={"Retry-After": str(limiter.retry_after(key))},
             )
 
-    with conn.cursor(row_factory=dict_row) as cur:
-        cur.execute(
-            """
-            SELECT chair_id, rep_code, rep_name, password_hash
-            FROM reps
-            WHERE rep_code::text = %(id)s OR chair_id::text = %(id)s
-            LIMIT 1
-            """,
-            {"id": identifier},
-        )
-        rep = cur.fetchone()
+    # Both identifiers are numeric, so parse FIRST and compare integers — the
+    # old `rep_code::text = %(id)s` cast the COLUMN and could never use an
+    # index. A non-numeric identifier is simply an unknown rep; it still pays
+    # the bcrypt verify below, so the timing and the identical-401 survive.
+    rep = None
+    try:
+        as_number = int(identifier)
+    except ValueError:
+        as_number = None
+    if as_number is not None:
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                """
+                SELECT chair_id, rep_code, rep_name, password_hash
+                FROM reps
+                WHERE rep_code = %(id)s OR chair_id = %(id)s
+                LIMIT 1
+                """,
+                {"id": as_number},
+            )
+            rep = cur.fetchone()
 
     # Verify even when the rep does not exist, so the timing is the same.
     stored = rep["password_hash"] if rep else None

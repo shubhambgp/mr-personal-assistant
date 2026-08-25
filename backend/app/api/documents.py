@@ -64,17 +64,19 @@ async def upload_document(rep: CurrentRep, file: UploadFile = File(...)) -> dict
             detail=f"Only {', '.join(sorted(ALLOWED_SUFFIXES))} files can be added.",
         )
 
-    data = await file.read()
+    # Bounded to one byte over the cap, never a bare read(): the whole body used
+    # to be pulled into RAM before the size check, so an oversized upload was a
+    # worker-memory spike before its 413 — the same bug chat.py's image path
+    # fixed (audit finding M-SEC4). One extra byte is exactly enough to tell
+    # "at the limit" from "over it"; the exact size is deliberately unknown.
+    data = await file.read(MAX_UPLOAD_BYTES + 1)
     if not data:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="The file is empty.")
     if len(data) > MAX_UPLOAD_BYTES:
         mib = 1024 * 1024
         raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail=(
-                f"{name} is {len(data) // mib} MB "
-                f"(limit {MAX_UPLOAD_BYTES // mib} MB)."
-            ),
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+            detail=f"{name} is larger than the {MAX_UPLOAD_BYTES // mib} MB limit.",
         )
 
     from etl.ingest_docs import ingest_file
@@ -117,7 +119,7 @@ async def upload_document(rep: CurrentRep, file: UploadFile = File(...)) -> dict
         if result.document_id:
             vectors.delete_document(result.document_id)
         raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
             detail=f"{name} has {result.pages} pages (limit {MAX_PAGES}).",
         )
 

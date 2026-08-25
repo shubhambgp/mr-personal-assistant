@@ -120,16 +120,30 @@ def decode_token(token: str) -> TokenClaims:
 class RateLimiter:
     """Sliding window, per key. In-process only — see the module docstring."""
 
+    #: Sweep the whole table once it holds this many keys. The login limiter is
+    #: keyed on client-supplied identifier strings, so an unauthenticated caller
+    #: cycling random identifiers grew `_hits` without bound — each key kept its
+    #: stale deque forever, because pruning only ever touched the key being
+    #: checked and reset() only fires on a successful login.
+    _SWEEP_AT = 4096
+
     def __init__(self, max_attempts: int, window_seconds: int) -> None:
         self.max_attempts = max_attempts
         self.window_seconds = window_seconds
         self._hits: dict[str, deque[float]] = defaultdict(deque)
 
+    def _sweep(self, cutoff: float) -> None:
+        """Drop every key whose window has fully expired."""
+        for key in [k for k, w in self._hits.items() if not w or w[-1] < cutoff]:
+            del self._hits[key]
+
     def check(self, key: str) -> bool:
         """True if the attempt is allowed. Records it as a side effect."""
         now = time.monotonic()
-        window = self._hits[key]
         cutoff = now - self.window_seconds
+        if len(self._hits) >= self._SWEEP_AT:
+            self._sweep(cutoff)
+        window = self._hits[key]
         while window and window[0] < cutoff:
             window.popleft()
         if len(window) >= self.max_attempts:

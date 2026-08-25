@@ -27,6 +27,7 @@ unavailable must not be the turn a bad claim ships.
 from __future__ import annotations
 
 import logging
+from functools import lru_cache
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -54,6 +55,30 @@ class Verdict(BaseModel):
     requires_escalation: str | None = Field(
         default=None, description="'pharmacovigilance', 'medical_information' or null."
     )
+
+
+@lru_cache(maxsize=1)
+def _default_reviewer():
+    """The production reviewer client, built once.
+
+    Same reasoning as graph._default_llm: ChatOpenAI is a stateless wrapper
+    around a pooled HTTP client, and a fresh one per gated round threw the pool
+    away exactly when a rep was waiting on the approval card. Tests inject
+    `llm`, so this is never touched there.
+    """
+    from langchain_openai import ChatOpenAI
+
+    from .agent import DEFAULT_MODEL
+
+    return ChatOpenAI(
+        model=DEFAULT_MODEL,
+        api_key=settings.openai_api_key,
+        use_responses_api=True,
+        # Lower than the main agent's: this is a rule-application task with
+        # the rules supplied, not an open-ended one.
+        reasoning={"effort": "low"},
+        output_version="v0",
+    ).with_structured_output(Verdict)
 
 
 REVIEWER_RULES = """
@@ -209,19 +234,7 @@ async def review_outbound(
     if reviewer is None:
         if not settings.openai_api_key:
             return _merge(rules, None, 0)
-        from langchain_openai import ChatOpenAI
-
-        from .agent import DEFAULT_MODEL
-
-        reviewer = ChatOpenAI(
-            model=DEFAULT_MODEL,
-            api_key=settings.openai_api_key,
-            use_responses_api=True,
-            # Lower than the main agent's: this is a rule-application task with
-            # the rules supplied, not an open-ended one.
-            reasoning={"effort": "low"},
-            output_version="v0",
-        ).with_structured_output(Verdict)
+        reviewer = _default_reviewer()
 
     try:
         raw = await reviewer.ainvoke(

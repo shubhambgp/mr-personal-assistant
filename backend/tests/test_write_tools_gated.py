@@ -110,13 +110,13 @@ def google(monkeypatch):
             return httpx.Response(204)
         return httpx.Response(200, json={"id": "ev-new", "threadId": "th-1"})
 
-    original = httpx.AsyncClient
+    # The module holds ONE shared client now; inject the transport by replacing
+    # it directly. monkeypatch restores the previous value after the test.
+    from app.integrations.google import client as google_client
 
-    def patched(*args, **kwargs):
-        kwargs["transport"] = httpx.MockTransport(handler)
-        return original(*args, **kwargs)
-
-    monkeypatch.setattr(httpx, "AsyncClient", patched)
+    monkeypatch.setattr(
+        google_client, "_client", httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    )
     return seen
 
 
@@ -222,7 +222,7 @@ def _graph(tool_name: str, specs):
 
 
 def _specs():
-    return AgendaToolProvider().get_tools(CTX, conn=None)
+    return AgendaToolProvider().get_tools(CTX, db=None)
 
 
 @pytest.mark.filterwarnings("ignore::pytest.PytestWarning")
@@ -307,11 +307,13 @@ async def test_a_send_refuses_when_the_thread_cannot_be_read(configured, google,
     not be able to relax a pharmacovigilance rule.
     """
 
-    async def unreadable(_ctx, *, thread_id):
-        del thread_id
-        raise RuntimeError("read-only pool not open")
+    # send_mail now fetches and parses the thread itself (one parse feeds the
+    # AE check, the doctor link and the reply headers), so THIS is the seam.
+    async def unreadable(_token, *, thread_id, metadata_only=False):
+        del thread_id, metadata_only
+        raise RuntimeError("gmail unreachable")
 
-    monkeypatch.setattr(agenda_service, "thread_detail", unreadable)
+    monkeypatch.setattr(agenda_service.gmail, "get_thread", unreadable)
 
     out = json.loads(
         await agenda_service.send_mail(

@@ -163,7 +163,7 @@ def test_a_stale_connection_hides_the_mail_tools(monkeypatch):
     )
 
     stale_ctx = dataclasses.replace(CTX, email_account=None)
-    names = {t["name"] for t in AgendaToolProvider().get_tools(stale_ctx, conn=None)}
+    names = {t["name"] for t in AgendaToolProvider().get_tools(stale_ctx, db=None)}
     assert "list_mail" not in names
     assert "send_email" not in names
     # ...but the rep can still be told what happened, and tasks still work.

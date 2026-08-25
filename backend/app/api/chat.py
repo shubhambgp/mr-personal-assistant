@@ -39,7 +39,7 @@ import time
 from collections.abc import AsyncIterator
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
+from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -48,7 +48,7 @@ from ..bot.checkpointer import checkpointer
 from ..bot.context import RepContext
 from ..core.metrics import metrics
 from ..core.security import RateLimiter
-from ..deps import AgendaRep, ro_conn
+from ..deps import AgendaRep
 from ..registry import registry
 from ..services import conversations as convo_service
 from ..tools.agenda_tools import AGENDA_TOOL_NAMES
@@ -103,7 +103,6 @@ async def stream_chat(
     # Without it the rep attaches a PDF, asks "what is in this?", and the model
     # answers "I don't see a PDF" — which was true, because nothing told it.
     document_names: Annotated[list[str] | None, Form()] = None,
-    conn=Depends(ro_conn),
 ) -> StreamingResponse:
     _throttle_turn(rep)
 
@@ -150,7 +149,6 @@ async def stream_chat(
     generator = _run(
         request=request,
         rep=rep,
-        conn=conn,
         message=message,
         conversation_id=conversation_id,
         images=collected,
@@ -179,7 +177,6 @@ async def resume_chat(
     request: Request,
     rep: AgendaRep,
     body: ResumeRequest,
-    conn=Depends(ro_conn),
 ) -> StreamingResponse:
     """Continue a turn that paused for approval.
 
@@ -221,7 +218,6 @@ async def resume_chat(
     generator = _run(
         request=request,
         rep=rep,
-        conn=conn,
         message="",
         conversation_id=body.conversation_id,
         images=[],
@@ -236,7 +232,6 @@ async def _run(
     *,
     request: Request,
     rep: RepContext,
-    conn,
     message: str,
     conversation_id: str | None,
     images: list[dict],
@@ -291,7 +286,10 @@ async def _run(
             )
             return
 
-    tool_specs = registry.build(rep, conn)
+    # The POOL, not a connection: handlers check one out per call. Pinning a
+    # connection here held it hostage for the whole stream — 10-60s a turn, of
+    # which ~97.5% is model time — so ten concurrent chats exhausted the pool.
+    tool_specs = registry.build(rep, db.ro_pool())
     vintage = ", ".join(sorted({v for _t, v, _n in await asyncio.to_thread(db.data_vintage)})) or "unknown"
 
     # The agent's callbacks are the producer; this generator is the consumer.
@@ -532,7 +530,7 @@ async def _run(
         )
     metrics.record_turn(
         total_ms=total_ms,
-        db_total_ms=result.tool_ms,
+        tool_total_ms=result.tool_ms,
         tools=[(t.name, t.is_error) for t in result.tool_trace],
         input_tokens=result.input_tokens,
         output_tokens=result.output_tokens,
@@ -554,7 +552,7 @@ async def _run(
             for t in result.tool_trace
         ],
         latency_ms=round(total_ms, 1),
-        db_ms=round(result.tool_ms, 1),
+        tool_ms=round(result.tool_ms, 1),
         input_tokens=result.input_tokens,
         output_tokens=result.output_tokens,
         cached_tokens=result.cached_tokens,
@@ -573,10 +571,12 @@ async def _run(
             },
             "timing": {
                 "total_ms": round(total_ms, 1),
-                "db_ms": round(result.tool_ms, 1),
-                # Surfaced per turn because it is the number people get wrong:
-                # the database is a rounding error next to the model.
-                "db_share_pct": round(100 * result.tool_ms / total_ms, 2) if total_ms else None,
+                # Time inside tool handlers — DB, Gmail, embeddings — named for
+                # what it measures. Surfaced per turn because it is the number
+                # people get wrong: the tools are a rounding error next to the
+                # model.
+                "tool_ms": round(result.tool_ms, 1),
+                "tool_share_pct": round(100 * result.tool_ms / total_ms, 2) if total_ms else None,
             },
         }
     )

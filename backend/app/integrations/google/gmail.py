@@ -39,6 +39,10 @@ class Message:
     subject: str
     body: str
     outbound: bool
+    #: The RFC 2822 Message-ID header — what a REPLY names in In-Reply-To so the
+    #: recipient's mail client threads it. Distinct from `message_id`, which is
+    #: Gmail's own opaque id and means nothing to any other client.
+    rfc_message_id: str = ""
 
 
 @dataclass
@@ -128,6 +132,7 @@ def parse_thread(raw: dict, *, me: str) -> Thread:
                 subject=_header(headers, "Subject"),
                 body=_plain_text(payload)[:MAX_BODY_CHARS],
                 outbound=from_address == me.lower(),
+                rfc_message_id=_header(headers, "Message-ID"),
             )
         )
     messages.sort(key=lambda m: m.date or datetime.min.replace(tzinfo=UTC))
@@ -150,7 +155,10 @@ async def get_thread(access_token: str, *, thread_id: str, metadata_only: bool =
     if metadata_only:
         # Only the headers triage needs. Smaller payload, and under the
         # gmail.metadata scope it is all Google will return anyway.
-        params["metadataHeaders"] = ["From", "To", "Date", "Subject"]
+        # Message-ID is here for one consumer: send_mail names the last
+        # message's id in In-Reply-To/References so the reply threads in the
+        # RECIPIENT'S client too — Gmail threads on threadId, others do not.
+        params["metadataHeaders"] = ["From", "To", "Date", "Subject", "Message-ID"]
     return await request(
         # quote() because thread_id can originate in model-composed args (or be
         # copied out of a mail body); an unencoded '/' or '?' would reshape the

@@ -22,7 +22,7 @@ export type StreamEvent =
       conversation_id: string
       response_id: string | null
       usage: { input_tokens: number; output_tokens: number; cached_tokens: number }
-      timing: { total_ms: number; db_ms: number; db_share_pct: number | null }
+      timing: { total_ms: number; tool_ms: number; tool_share_pct: number | null }
     }
   | { type: 'error'; message: string }
   | {

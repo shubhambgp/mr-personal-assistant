@@ -114,6 +114,29 @@ def forget_access_token(chair_id: int) -> None:
     _access_cache.pop(chair_id, None)
 
 
+#: ONE client for every Google call, created lazily and closed by
+#: bootstrap.close_resources(). A client per request paid a fresh TCP+TLS
+#: handshake every time — a 25-thread triage was 25 handshakes before any mail
+#: was read. Tests inject a MockTransport by monkeypatching `_client` directly.
+_client: httpx.AsyncClient | None = None
+
+
+def _http() -> httpx.AsyncClient:
+    global _client
+    if _client is None:
+        _client = httpx.AsyncClient()
+    return _client
+
+
+async def close_http() -> None:
+    """Called from bootstrap.close_resources(), so the app and the eval harness
+    both close it — the whole reason bootstrap.py exists."""
+    global _client
+    if _client is not None:
+        await _client.aclose()
+    _client = None
+
+
 async def request(
     method: str,
     url: str,
@@ -135,10 +158,15 @@ async def request(
         headers["Authorization"] = f"Bearer {access_token}"
 
     try:
-        async with httpx.AsyncClient(timeout=timeout_seconds) as client:
-            response = await client.request(
-                method, url, headers=headers, params=params, json=json_body, data=form
-            )
+        response = await _http().request(
+            method,
+            url,
+            headers=headers,
+            params=params,
+            json=json_body,
+            data=form,
+            timeout=timeout_seconds,
+        )
     except httpx.TimeoutException as exc:
         raise GoogleError("Google did not respond in time.", retryable=True) from exc
     except httpx.HTTPError as exc:

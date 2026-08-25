@@ -106,21 +106,13 @@ async def agenda_rep(rep: CurrentRep) -> RepContext:
 AgendaRep = Annotated[RepContext, Depends(agenda_rep)]
 
 
-def ro_conn() -> Iterator:
-    """A read-only connection for the duration of one request.
-
-    One checkout per request rather than per query: a briefing runs five or six
-    queries, and they should share a connection the way the previous
-    session-scoped cursor did.
-    """
-    with db.ro_pool().connection() as conn:
-        yield conn
-
-
 def rw_conn() -> Iterator:
+    """An owner connection for the duration of one request (auth lookups).
+
+    There is deliberately no read-only sibling any more: the tool layer takes
+    the POOL from the registry and checks out per call, because a connection
+    pinned for a whole SSE turn sat idle through the model's ~97.5% of the
+    latency and ten concurrent turns exhausted the pool.
+    """
     with db.rw_pool().connection() as conn:
         yield conn
-
-
-RoConn = Annotated[object, Depends(ro_conn)]
-RwConn = Annotated[object, Depends(rw_conn)]

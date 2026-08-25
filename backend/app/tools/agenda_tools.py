@@ -26,11 +26,12 @@ THE RULES IT MUST FOLLOW (CLAUDE.md §1.2 and §1.7):
    already corresponded with. That is the control which does not depend on the
    model complying with rule 2.
 
-WHAT IS GATED. `send_email` and `create_event` set requires_approval, so a turn
-that wants either pauses at a human. The task tools do not: a private to-do is
-not a regulated action and nothing leaves the building, so routing it through the
-same card would train the rep to click through approvals and weaken the one gate
-that matters.
+WHAT IS GATED. Everything that writes to Google — the five tools in
+GATED_TOOL_NAMES, each built by _write_tool(), which sets requires_approval
+unconditionally — so a turn that wants one pauses at a human. The plain task
+tools do not: a private to-do is not a regulated action and nothing leaves the
+building, so routing it through the same card would train the rep to click
+through approvals and weaken the one gate that matters.
 """
 
 from __future__ import annotations
@@ -41,6 +42,7 @@ import logging
 from datetime import date, datetime, timedelta
 from datetime import time as clock_time
 
+from ..bot import approval_context
 from ..bot.context import RepContext
 from ..config import settings
 from ..integrations.google.client import GoogleError
@@ -159,8 +161,8 @@ def _iso_date(value: str | None, *, default: date | None) -> date | None:
 class AgendaToolProvider:
     name = "agenda"
 
-    def get_tools(self, ctx: RepContext, conn) -> list[ToolSpec]:
-        del conn  # mail lives at Google; tasks use the service's own pool
+    def get_tools(self, ctx: RepContext, db) -> list[ToolSpec]:
+        del db  # mail lives at Google; tasks use the service's own pool
 
         # The handoff tool is what the orchestrator calls to pass a turn to the
         # agenda agent (graph.py binds `open_agenda` to the orchestrator and
@@ -308,9 +310,22 @@ class AgendaToolProvider:
         ) -> str:
             # Reached only after a human approved it: the graph's approval node
             # interrupts before this handler runs.
+            #
+            # The passages and the edited flag arrive out-of-band (see
+            # app/bot/approval_context.py) — NOT as parameters, because the
+            # model composes parameters and neither fact is the model's to
+            # assert. Without the passages the service's final check_outbound
+            # saw every clinical claim as uncited, so the compliant
+            # cited-clinical-email flow could only ever be blocked.
             try:
                 return await agenda_service.send_mail(
-                    ctx, thread_id=thread_id, to=to, subject=subject, body=body
+                    ctx,
+                    thread_id=thread_id,
+                    to=to,
+                    subject=subject,
+                    body=body,
+                    passages=list(approval_context.turn_passages.get()),
+                    edited_by_rep=approval_context.turn_edited.get(),
                 )
             except agenda_service.NotConnected as exc:
                 return _err(exc.guidance)
@@ -510,7 +525,11 @@ class AgendaToolProvider:
 
     def _calendar_tools(self, ctx: RepContext) -> list[ToolSpec]:
         async def list_calendar(from_date: str | None = None, to_date: str | None = None) -> str:
-            today = date.today()
+            # The rep's zone, not the server's — a rep west of the server would
+            # otherwise be shown "today" starting an hour into yesterday.
+            today = await asyncio.to_thread(
+                lambda: datetime.now(agenda_service.rep_timezone(ctx)).date()
+            )
             start = _iso_date(from_date, default=today)
             end = _iso_date(to_date, default=start + timedelta(days=7))
             try:
@@ -540,6 +559,9 @@ class AgendaToolProvider:
                     starts_at=starts_at,
                     duration_minutes=duration_minutes,
                     notes=notes,
+                    # Out-of-band, same as send_email — see approval_context.
+                    passages=list(approval_context.turn_passages.get()),
+                    edited_by_rep=approval_context.turn_edited.get(),
                 )
             except agenda_service.NotConnected as exc:
                 return _err(exc.guidance)
@@ -573,6 +595,9 @@ class AgendaToolProvider:
                     notes=notes,
                     notify=notify,
                     doctor_id=doctor_id,
+                    # Out-of-band, same as send_email — see approval_context.
+                    passages=list(approval_context.turn_passages.get()),
+                    edited_by_rep=approval_context.turn_edited.get(),
                 )
             except agenda_service.NotConnected as exc:
                 return _err(exc.guidance)
@@ -982,7 +1007,12 @@ class AgendaToolProvider:
         async def schedule_task(task_id: str, starts_at: str, duration_minutes: int = 30) -> str:
             try:
                 return await agenda_service.schedule_task(
-                    ctx, task_id=task_id, starts_at=starts_at, duration_minutes=duration_minutes
+                    ctx,
+                    task_id=task_id,
+                    starts_at=starts_at,
+                    duration_minutes=duration_minutes,
+                    # The rep may edit starts_at/duration at the gate; record it.
+                    edited_by_rep=approval_context.turn_edited.get(),
                 )
             except agenda_service.NotConnected as exc:
                 return _err(exc.guidance)

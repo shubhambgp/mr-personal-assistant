@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import date, time, timedelta
+from datetime import date, datetime, time, timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, status
@@ -166,7 +166,12 @@ async def disconnect(rep: CurrentRep) -> None:
 @router.get("")
 async def get_agenda(rep: AgendaRep, days: int = 7) -> dict:
     """Everything the Agenda panel renders, in one call and with no model."""
-    today = date.today()
+    # "Today" in the REP'S zone, not the server's — task sections already use
+    # rep_timezone, and the events_today count crossing midnight at a different
+    # moment than the sections it sits beside is a silent disagreement.
+    today = await asyncio.to_thread(
+        lambda: datetime.now(agenda_service.rep_timezone(rep)).date()
+    )
     tasks = await asyncio.to_thread(agenda_service.list_tasks, rep, status="open", limit=50)
     payload: dict = {
         "as_of": today.isoformat(),

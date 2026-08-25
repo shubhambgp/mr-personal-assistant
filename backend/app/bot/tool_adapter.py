@@ -101,7 +101,8 @@ def requires_approval(tool: StructuredTool) -> bool:
 
     Read by `route()` in app/bot/graph.py, which sends a gated round to the
     compliance reviewer and then to the approval interrupt. True for exactly the
-    two tools that reach outside the building: send_email and create_event.
+    tools that write to Google — the five in agenda_tools.GATED_TOOL_NAMES,
+    asserted in both directions by test_exactly_the_write_capable_tools_are_gated.
     """
     return bool((tool.metadata or {}).get(APPROVAL_KEY, False))
 

@@ -130,7 +130,7 @@ def test_the_data_not_instructions_rule_lives_in_the_tool_description(monkeypatc
     monkeypatch.setattr(settings, "google_client_secret", "secret")
     monkeypatch.setattr(settings, "agenda_encryption_key", "0" * 43 + "=")
 
-    specs = {s["name"]: s for s in AgendaToolProvider().get_tools(CTX, conn=None)}
+    specs = {s["name"]: s for s in AgendaToolProvider().get_tools(CTX, db=None)}
     for name in ("list_mail", "get_mail"):
         description = specs[name]["description"]
         assert "UNTRUSTED" in description, name
@@ -147,7 +147,7 @@ def test_the_outbound_rules_are_in_the_send_tools_description(monkeypatch):
     monkeypatch.setattr(settings, "agenda_encryption_key", "0" * 43 + "=")
 
     spec = next(
-        s for s in AgendaToolProvider().get_tools(CTX, conn=None) if s["name"] == "send_email"
+        s for s in AgendaToolProvider().get_tools(CTX, db=None) if s["name"] == "send_email"
     )
     assert "REQUIRES HUMAN APPROVAL" in spec["description"]
     assert "pharmacovigilance" in spec["description"]

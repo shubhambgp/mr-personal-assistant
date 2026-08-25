@@ -32,8 +32,12 @@ Applies to everything under `backend/`.
 * `app/api/` is HTTP only — request parsing, auth dependency, response shaping.
   No business logic.
 * `app/bot/` is transport-agnostic. It must never import from `app/api/`.
-* `app/services/` owns persistence and external clients. Tool handlers call
-  services; they never touch a connection pool directly.
+* `app/services/` owns persistence and external clients. Read-only tool
+  handlers check a connection out of the pool the registry hands them, per
+  call, and release it before returning — never pin one across a turn (a
+  pinned connection sat idle through the model's ~97.5% of turn latency, so
+  ten concurrent turns exhausted the pool). Anything write-shaped still goes
+  through a function in `app/services/`.
 * Adding a tool provider means adding to `app/registry.py`, not touching
   `app/bot/agent.py`.
 

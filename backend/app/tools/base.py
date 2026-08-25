@@ -1,7 +1,7 @@
 """The tool contract, and the registry that assembles tools from providers.
 
 Why a registry rather than one build_tools() function: RAG retrieval and an
-email MCP server are the next two milestones. `agent.run_turn` already takes an
+email MCP server are the next two milestones. `graph.run_turn` already takes an
 opaque `list[ToolSpec]` and resolves handlers by name, so it needs no change to
 gain a new tool family — but *something* has to compose the families, check for
 name collisions, and guarantee every one of them is scoped to the same
@@ -36,8 +36,9 @@ class ToolSpec(TypedDict):
 
     #: Human-in-the-loop gate. When True the graph pauses via interrupt() and
     #: waits for a person to approve the call before the handler runs. Set by
-    #: the two agenda tools that reach outside the building — send_email and
-    #: create_event. Read through app/bot/tool_adapter.py:requires_approval().
+    #: every tool that writes to Google — the five in
+    #: agenda_tools.GATED_TOOL_NAMES, always via _write_tool(). Read through
+    #: app/bot/tool_adapter.py:requires_approval().
     requires_approval: NotRequired[bool]
 
     #: Argument names a human may edit at the approval gate, before approving.
@@ -58,11 +59,18 @@ class ToolSpec(TypedDict):
 
 @runtime_checkable
 class ToolProvider(Protocol):
-    """A source of tools. Stateless; called once per turn."""
+    """A source of tools. Stateless; called once per turn.
+
+    `db` is the READ-ONLY connection pool, not a checked-out connection. Handlers
+    check a connection out per call and release it before returning — a
+    connection held for the whole turn sat idle through the model's ~97.5% of
+    the latency, so ten concurrent turns exhausted a ten-connection pool while
+    the database did nothing.
+    """
 
     name: str
 
-    def get_tools(self, ctx: RepContext, conn: Any) -> list[ToolSpec]: ...
+    def get_tools(self, ctx: RepContext, db: Any) -> list[ToolSpec]: ...
 
 
 class ToolRegistry:
@@ -75,12 +83,12 @@ class ToolRegistry:
     def provider_names(self) -> list[str]:
         return [p.name for p in self._providers]
 
-    def build(self, ctx: RepContext, conn: Any) -> list[ToolSpec]:
+    def build(self, ctx: RepContext, db: Any) -> list[ToolSpec]:
         specs: list[ToolSpec] = []
         seen: dict[str, str] = {}  # tool name -> providing provider
 
         for provider in self._providers:
-            for spec in provider.get_tools(ctx, conn):
+            for spec in provider.get_tools(ctx, db):
                 name = spec["name"]
                 if name in seen:
                     # Fail loudly. A silent shadow would mean the model calls a
