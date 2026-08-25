@@ -10,11 +10,11 @@ Google and is created once by whoever runs the deployment. Each rep then clicks
 is encrypted and stored in `agenda.connections` under their `chair_id`. No rep
 ever handles a secret, and nothing per-rep is ever configured by hand.
 
-| | what it is | how many | where it lives |
-|---|---|---|---|
-| Client ID + secret | identifies the *app* to Google | one per deployment | the process environment |
-| `AGENDA_ENCRYPTION_KEY` | encrypts the stored tokens | one per deployment | the process environment |
-| Refresh token | one rep's access to *their* mailbox | one per connected rep | the database, AES-256-GCM |
+|                           | what it is                           | how many              | where it lives            |
+| ------------------------- | ------------------------------------ | --------------------- | ------------------------- |
+| Client ID + secret        | identifies the*app* to Google      | one per deployment    | the process environment   |
+| `AGENDA_ENCRYPTION_KEY` | encrypts the stored tokens           | one per deployment    | the process environment   |
+| Refresh token             | one rep's access to*their* mailbox | one per connected rep | the database, AES-256-GCM |
 
 ---
 
@@ -23,12 +23,12 @@ ever handles a secret, and nothing per-rep is ever configured by hand.
 This is a setting in the Google Cloud console, not a code decision, and the four
 options differ enormously in cost.
 
-| Audience | Who can connect | Google verification | Refresh token life |
-|---|---|---|---|
-| External + **Testing** | only addresses you add by hand to the test-user list, **max 100** | none | **7 days** |
-| **Internal** (Workspace / Cloud Identity org) | every user in your domain, unlimited | **none** | long-lived |
-| External + **Published** | any Google account | brand + app review **plus a CASA security assessment, redone every 12 months** | long-lived |
-| Workspace Marketplace / admin-trusted | your domain, admin-installed | none | long-lived |
+| Audience                                            | Who can connect                                                        | Google verification                                                                 | Refresh token life |
+| --------------------------------------------------- | ---------------------------------------------------------------------- | ----------------------------------------------------------------------------------- | ------------------ |
+| External +**Testing**                         | only addresses you add by hand to the test-user list,**max 100** | none                                                                                | **7 days**   |
+| **Internal** (Workspace / Cloud Identity org) | every user in your domain, unlimited                                   | **none**                                                                      | long-lived         |
+| External +**Published**                       | any Google account                                                     | brand + app review**plus a CASA security assessment, redone every 12 months** | long-lived         |
+| Workspace Marketplace / admin-trusted               | your domain, admin-installed                                           | none                                                                                | long-lived         |
 
 Every scope that **reads** mail — `gmail.readonly`, `gmail.metadata`,
 `gmail.modify` — is in Google's **restricted** tier, and that is what triggers
@@ -55,7 +55,7 @@ The OAuth consent screen was reorganised into **Google Auth Platform** in 2025.
 Older guides say `APIs & Services → OAuth consent screen`; that path no longer
 matches the console.
 
-**1. Project and APIs.** At <https://console.cloud.google.com/> create a project
+**1. Project and APIs.** At [https://console.cloud.google.com/](https://console.cloud.google.com/) create a project
 (or pick one). Under **APIs & Services → Library**, enable:
 
 - **Gmail API**
@@ -127,9 +127,6 @@ GOOGLE_REDIRECT_URI=http://localhost:8000/api/agenda/callback
 # base64url of exactly 32 random bytes:
 #   python -c "import os,base64;print(base64.urlsafe_b64encode(os.urandom(32)).decode())"
 AGENDA_ENCRYPTION_KEY=<generate one>
-
-# Which zone "today" and "overdue" mean. Worth setting.
-AGENDA_TIMEZONE=Asia/Kolkata
 ```
 
 All three of the first values are required together — the app refuses to start
@@ -154,14 +151,8 @@ The app handles it honestly: when the grant dies, the stored credential is
 **deleted**, the connection is marked stale, Settings shows an amber
 **Reconnect** for that address, and the assistant says the connection expired
 rather than reporting a mailbox error. Click **Reconnect**. The same handling
-covers a rep revoking access at <https://myaccount.google.com/permissions> or
+covers a rep revoking access at [https://myaccount.google.com/permissions](https://myaccount.google.com/permissions) or
 changing their password. **Internal audience does not expire this way.**
-
-**`AGENDA_TIMEZONE` is worth setting.** A connected account's own Google calendar
-timezone overrides it, but tasks work with no Google connection, and then this is
-all the app has. Left at `UTC` while you are in `Asia/Kolkata`, a task list looked
-at before 05:30 shows everything shifted by a day. Nothing crashes; it is just
-quietly wrong.
 
 **What a leaked client secret does and does not buy.** On its own, nothing: it
 cannot read any mailbox. The per-rep **refresh tokens** are the credentials that

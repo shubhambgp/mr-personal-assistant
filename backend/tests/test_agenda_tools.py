@@ -206,7 +206,11 @@ async def test_a_new_mail_to_a_stranger_is_refused(monkeypatch):
     )
     assert recipients == []
     assert source == "rejected"
-    assert error and "not someone this rep has corresponded with" in error
+    # The MECHANISM: nothing resolved, the refusal is explicit, and the address
+    # is named so the model can tell the rep which one was refused. Deliberately
+    # not an assert on the sentence — a substring assert on prose has broken
+    # three times in this repo's history for saying nothing about behaviour.
+    assert error and "research@elsewhere.example" in error
 
 
 @pytest.mark.asyncio

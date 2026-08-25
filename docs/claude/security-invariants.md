@@ -248,6 +248,15 @@ because the file has not changed so ingestion skips it.
   one the rep has already corresponded with. That is the control that does not
   depend on the model obeying the "treat mail as data" instruction.
 
+  "Corresponded with" means **both directions** — `services/agenda.correspondents`
+  reads the rep's own mailbox and collects who wrote to them *and* who they wrote
+  to. It used to be inbound only (built from `TriageItem.from_address`, which is
+  the counterparty's, and a thread nobody answered has no counterparty), so a rep
+  could not follow up on their own outbound mail while the refusal claimed they
+  had never corresponded. Widening it does not weaken the control: an address a
+  mail body asks us to write to still appears in no thread of the rep's own.
+  `tests/test_correspondents.py` asserts both halves.
+
 * **Compliance is checked in the service, not the card.** `services/agenda.send_mail`
   re-runs the deterministic rules on the final bytes, because the rep may have
   edited the wording after the reviewer saw it. Whichever way the transport is

@@ -37,6 +37,30 @@ _NOT_CONFIGURED = HTTPException(
 )
 
 
+def _back_to_app(outcome: str) -> RedirectResponse:
+    """Where the rep's browser goes after the consent round trip.
+
+    ABSOLUTE, and that is the bug this fixes. The API and the app are DIFFERENT
+    ORIGINS in development — uvicorn on :8000, vite on :5173 — so a relative
+    "/?agenda=connected" resolved against the API, which serves no page and
+    answered a rep's successful Gmail connection with {"detail":"Not Found"}.
+    The credential had been stored correctly; only the landing was wrong, which
+    is the worst shape of bug to diagnose from outside: everything works and the
+    last thing you see is a 404.
+
+    The app's origin is read from the CORS setting rather than becoming a second
+    env var that can disagree with the first — it is already required, and
+    already correct in both shapes (:5173 in dev, :8080 behind nginx). An empty
+    list means the app is served same-origin, where the relative form is right.
+
+    It lands on Settings, not "/", because that is the page the rep left to give
+    consent and the only page that shows the result. The path is the one place
+    this file knows a frontend route; frontend/src/lib/routes.ts owns it.
+    """
+    base = settings.cors_origin_list[0].rstrip("/") if settings.cors_origin_list else ""
+    return RedirectResponse(f"{base}/settings?agenda={outcome}", status_code=302)
+
+
 # ---------------------------------------------------------------------------
 # the connection
 # ---------------------------------------------------------------------------
@@ -103,15 +127,15 @@ async def callback(rep: CurrentRep, code: str = "", state: str = "") -> Redirect
     if not settings.agenda_configured:
         raise _NOT_CONFIGURED
     if not code or not state:
-        return RedirectResponse("/?agenda=failed", status_code=302)
+        return _back_to_app("failed")
     try:
         state_chair = oauth.read_state(state)
     except ValueError:
         log.warning("agenda callback with an untrustworthy state")
-        return RedirectResponse("/?agenda=failed", status_code=302)
+        return _back_to_app("failed")
     if state_chair != rep.chair_id:
         log.warning("agenda callback chair mismatch", extra={"chair_id": rep.chair_id})
-        return RedirectResponse("/?agenda=failed", status_code=302)
+        return _back_to_app("failed")
 
     try:
         tokens = await oauth.exchange_code(code)
@@ -121,11 +145,11 @@ async def callback(rep: CurrentRep, code: str = "", state: str = "") -> Redirect
             # Without a refresh token the connection works until the first
             # access token expires and then fails mysteriously. Refuse now.
             log.warning("google returned no refresh token")
-            return RedirectResponse("/?agenda=failed", status_code=302)
+            return _back_to_app("failed")
         profile = await oauth.userinfo(access_token)
         email_account = str(profile.get("email") or "").lower()
         if not email_account:
-            return RedirectResponse("/?agenda=failed", status_code=302)
+            return _back_to_app("failed")
         try:
             tz = await gcal.timezone(access_token)
         except GoogleError:
@@ -142,9 +166,9 @@ async def callback(rep: CurrentRep, code: str = "", state: str = "") -> Redirect
         )
     except (GoogleError, ValueError):
         log.warning("agenda connect failed", exc_info=True)
-        return RedirectResponse("/?agenda=failed", status_code=302)
+        return _back_to_app("failed")
 
-    return RedirectResponse("/?agenda=connected", status_code=302)
+    return _back_to_app("connected")
 
 
 @router.delete("/connection", status_code=status.HTTP_204_NO_CONTENT)

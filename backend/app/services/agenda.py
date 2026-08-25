@@ -61,6 +61,21 @@ log = logging.getLogger(__name__)
 _TRIAGE_TTL_SECONDS = 60
 _triage_cache: dict[int, tuple[float, list[TriageItem]]] = {}
 
+#: The correspondent allowlist is cached separately from triage, because it
+#: answers a different question — "has this rep exchanged mail with X at all",
+#: not "what needs attention now" — and it changes far more slowly. Invalidated
+#: on send, on connect and on expiry, alongside the triage cache.
+_CORRESPONDENTS_TTL_SECONDS = 300
+_correspondents_cache: dict[int, tuple[float, frozenset[str]]] = {}
+
+#: Deliberately WIDER than the triage window and NOT the same knob. Triage asks
+#: about the last fortnight because that is what needs replying to; "have I ever
+#: written to this person" is a question about months. Module constants rather
+#: than settings: two more env vars to get wrong, for a guard whose bounds only
+#: ever trade Gmail round trips against how far back a rep can be remembered.
+CORRESPONDENT_WINDOW_DAYS = 90
+CORRESPONDENT_THREAD_CAP = 120
+
 
 class NotConnected(RuntimeError):
     """The rep has no usable Google connection.
@@ -172,6 +187,7 @@ def mark_stale(chair_id: int) -> None:
         )
     forget_access_token(chair_id)
     _triage_cache.pop(chair_id, None)
+    _correspondents_cache.pop(chair_id, None)
     log.warning("google grant expired; connection marked stale", extra={"chair_id": chair_id})
 
 
@@ -218,6 +234,7 @@ def store_connection(
         )
     forget_access_token(chair_id)
     _triage_cache.pop(chair_id, None)
+    _correspondents_cache.pop(chair_id, None)
 
 
 async def disconnect(ctx: RepContext) -> bool:
@@ -241,6 +258,7 @@ async def disconnect(ctx: RepContext) -> bool:
 
     forget_access_token(ctx.chair_id)
     _triage_cache.pop(ctx.chair_id, None)
+    _correspondents_cache.pop(ctx.chair_id, None)
     if row["refresh_token_enc"] is None:
         # A stale row: the credential was already deleted when the grant died, so
         # there is nothing to revoke. Without this branch open_sealed(None) would
@@ -630,9 +648,77 @@ async def thread_detail(ctx: RepContext, *, thread_id: str) -> dict:
 
 
 async def correspondents(ctx: RepContext) -> set[str]:
-    """Addresses this rep has actually exchanged mail with, in the window."""
-    items = await triage(ctx, limit=50)
-    return {i.from_address for i in items if i.from_address}
+    """Addresses this rep has exchanged mail with — IN BOTH DIRECTIONS.
+
+    Both directions is the fix, and it was a real block rather than a nicety.
+    This used to be built from `TriageItem.from_address`, which is the
+    COUNTERPARTY's address — so a thread the rep WROTE and nobody answered has no
+    counterparty at all, contributes an empty string, and is filtered out. The
+    allowlist therefore meant "people who have written to me", while the message
+    it produced said "not someone this rep has corresponded with" and the tool
+    descriptions promised "an address the rep has already corresponded with".
+    Measured on a real mailbox: 5 of 8 threads in the window were the rep writing
+    with no reply, and the address they were trying to write to was one of them.
+    A rep could not follow up on their own outbound mail.
+
+    THE SECURITY PROPERTY IS UNCHANGED (CLAUDE.md §1.10): the address must appear
+    in the rep's own mailbox, the set is derived server-side from a verified
+    chair_id, and no caller — least of all the model — can widen it. What changes
+    is only that "corresponded with" now means what the words mean. An address a
+    mail body asked us to write to is still absent from it, which is the attack
+    this guard exists to stop.
+
+    The query shape is deliberately the same one triage already uses
+    (`newer_than` plus the spam/trash exclusions) rather than a `to:`/`from:`
+    search for the one address: a search-operator query is rejected under the
+    `metadata` Gmail scope, and a guard that silently stops working when the
+    deployment tightens its scope is worse than one that costs a few reads.
+    """
+    cached = _correspondents_cache.get(ctx.chair_id)
+    if cached and time.monotonic() - cached[0] < _CORRESPONDENTS_TTL_SECONDS:
+        return set(cached[1])
+
+    token, conn_row = await _access_token(ctx)
+    ids = await gmail.list_thread_ids(
+        token,
+        query=f"newer_than:{CORRESPONDENT_WINDOW_DAYS}d -in:spam -in:trash",
+        limit=CORRESPONDENT_THREAD_CAP,
+    )
+    me = conn_row.email_account.lower()
+    fetch_cap = asyncio.Semaphore(8)
+
+    async def _addresses(thread_id: str) -> set[str]:
+        async with fetch_cap:
+            try:
+                # Headers only: this needs the From and To lines, never a body.
+                raw = await gmail.get_thread(token, thread_id=thread_id, metadata_only=True)
+            except GoogleError:
+                # One unreadable thread must not empty the allowlist and block
+                # every send. `thread_id`, never `thread` — reserved on LogRecord.
+                log.warning(
+                    "could not read thread for the correspondent list",
+                    extra={"thread_id": thread_id},
+                )
+                return set()
+        thread = gmail.parse_thread(raw, me=me)
+        found: set[str] = set()
+        for message in thread.messages:
+            if message.outbound:
+                # Who the rep WROTE to — the half that was missing.
+                found.update(message.to)
+            elif message.from_address:
+                found.add(message.from_address)
+        return found
+
+    groups = await asyncio.gather(*(_addresses(i) for i in ids))
+    known = frozenset(
+        address.strip().lower()
+        for group in groups
+        for address in group
+        if address and address.strip()
+    )
+    _correspondents_cache[ctx.chair_id] = (time.monotonic(), known)
+    return set(known)
 
 
 async def resolve_recipients(
@@ -646,7 +732,9 @@ async def resolve_recipients(
        message, and the model's `to` is IGNORED, not merely validated. A reply is
        the overwhelmingly common case, so most sends have no model-composed
        recipient at all.
-    2. to set -> it must be an address this rep has already corresponded with.
+    2. to set -> it must be an address this rep has already corresponded with,
+       in EITHER direction (see `correspondents`): someone who wrote to them, or
+       someone they wrote to.
     3. Nothing else is reachable. No wildcard, no domain rule, no override.
 
     THIS IS WHAT DEFEATS THE OBVIOUS ATTACK. A mail body saying "reply to this
@@ -674,8 +762,11 @@ async def resolve_recipients(
         return (
             [],
             "rejected",
-            f"{address} is not someone this rep has corresponded with recently. Reply in an "
-            f"existing thread, or ask the rep to confirm the address.",
+            f"{address} does not appear anywhere in this rep's own mailbox, so it cannot "
+            f"be a first-contact address from here. Say exactly that: the rep should send "
+            f"the first mail to a new address from Gmail themselves, and then replies and "
+            f"follow-ups work here. DO NOT ask them to confirm the address and retry — "
+            f"confirming changes nothing, and offering it is a loop.",
         )
     return [address], "allowlisted", None
 
@@ -1219,6 +1310,7 @@ async def send_mail(
         provider_message_id=str(sent.get("id") or ""),
     )
     _triage_cache.pop(ctx.chair_id, None)
+    _correspondents_cache.pop(ctx.chair_id, None)
     return json.dumps(
         {
             "sent": True,
@@ -1284,8 +1376,11 @@ async def create_calendar_event(
             return json.dumps(
                 {
                     "error": (
-                        f"Will not invite {unknown}: not people this rep has corresponded with. "
-                        f"Create the slot without notifying, or ask the rep to confirm."
+                        f"Will not invite {unknown}: they do not appear anywhere in this "
+                        f"rep's own mailbox. Create the slot with notify=false — the meeting "
+                        f"still goes on the rep's calendar — and tell the rep to invite them "
+                        f"from Google Calendar or write to them from Gmail first. Do not ask "
+                        f"them to confirm the address and retry; that changes nothing."
                     )
                 }
             )

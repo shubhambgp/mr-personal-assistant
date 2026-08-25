@@ -1878,3 +1878,59 @@ harness stops at the graph and the unit tests stubbed the service. The new
 `tests/test_approval_context.py` drives the real graph into the real service
 signature and asserts what the service received, which is the only place this
 class of bug is visible.
+
+## 23. Two guards that were right about the rule and wrong about the world
+
+Both of these were reported as "it says no but it should say yes", and in both
+cases the code was doing exactly what it was written to do.
+
+**The allowlist that only remembered people who wrote first.** A new mail needs a
+recipient the rep has "already corresponded with" (invariant 1.10) — the control
+that does not depend on the model obeying "treat mail as data". It was built from
+`TriageItem.from_address`, which is the **counterparty's** address. A thread the
+rep wrote that nobody answered has no counterparty at all: `from_address` is the
+empty string and the filter drops it. So the set meant *people who have written
+to me*, while the refusal it produced said "not someone this rep has corresponded
+with" and the tool description promised "an address the rep has already
+corresponded with". Measured on the real mailbox that reported it: **5 of the 8
+threads in the window** were the rep writing with no reply, the allowlist held 3
+addresses instead of 15, and the address they were trying to write to was one of
+the ones thrown away. `correspondents()` now reads both directions of each
+thread, over its own wider window with its own cache. The security property is
+untouched — an address that appears in no thread of the rep's own is still
+refused, which is the whole point of the guard.
+
+Worse than the block was the **escape hatch that did not exist**. Both refusals
+ended with "or ask the rep to confirm the address", so the model dutifully asked,
+the rep confirmed, the model retried, and the identical refusal came back. A
+guidance string had promised a capability the system does not have, and the
+resulting loop looked like the assistant being stupid rather than the message
+being wrong. The strings now say what is actually true: send the first mail from
+Gmail, or create the meeting with `notify=false`.
+
+**The redirect that resolved against the wrong origin.** After a successful Gmail
+consent round trip the rep landed on `{"detail":"Not Found"}`. The callback ended
+with `RedirectResponse("/?agenda=connected")` — relative, so the browser resolved
+it against the **API** (uvicorn on :8000), which serves no page. The credential
+had been stored perfectly; only the landing was wrong. That is the worst shape a
+bug can take from outside: everything worked and the last thing you saw was a
+404, so the natural conclusion is that the connection failed. It now redirects to
+an absolute origin read from the CORS setting — already required, already correct
+in both shapes — and lands on Settings, the page the rep left and the only one
+that shows the result.
+
+**A third, found while fixing the first two.** `tests/test_token_crypto.py`'s
+"a half-configured agenda must be refused" started failing — but only in the full
+suite, never alone. `etl/ingest_docs.py` calls `load_dotenv()` at **import** time,
+and the upload endpoint imports it inside the handler, so the first test to drive
+that endpoint put the developer's entire `backend/.env` into `os.environ` for the
+rest of the session. On a machine where Google *is* configured, the third value
+the validator test needs to be ABSENT was being supplied from the dotenv. Fixed
+at the class rather than the case: `tests/conftest.py` now restores `os.environ`
+around every test.
+
+**Lesson:** all three were invisible to CI by construction. CI has no `.env`, so
+the env leak had nothing to leak; CI never completes an OAuth round trip, so the
+relative redirect never resolved; and CI's mailbox is a fixture where everyone
+writes first. A guard can be perfectly tested against the world the tests build
+and still be wrong about the one it ships into.

@@ -89,8 +89,20 @@ def test_settings_reject_a_key_that_is_not_32_bytes():
 
 def test_settings_reject_a_half_configured_agenda():
     """A client id with no encryption key would complete the OAuth round trip and
-    then fail while storing the token — after the rep had already consented."""
+    then fail while storing the token — after the rep had already consented.
+
+    `_env_file=None` is load-bearing: Settings reads backend/.env by default, so
+    on a machine where the developer HAS configured Google the missing third
+    value was silently supplied from the dotenv and this test passed vacuously
+    (worse — it failed, because nothing raised). A validator test must construct
+    the exact state it claims to test, not whatever the local .env leaves over.
+    """
     from app.config import Settings
 
     with pytest.raises(ValueError, match="must be set together"):
-        Settings(jwt_secret="x" * 40, google_client_id="id", google_client_secret="secret")
+        Settings(
+            _env_file=None,
+            jwt_secret="x" * 40,
+            google_client_id="id",
+            google_client_secret="secret",
+        )

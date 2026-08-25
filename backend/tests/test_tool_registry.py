@@ -126,12 +126,21 @@ def _configured(monkeypatch):
     monkeypatch.setattr(settings, "agenda_encryption_key", "0" * 43 + "=")
 
 
-def test_the_agenda_provider_contributes_only_tasks_when_google_is_unconfigured():
+def test_the_agenda_provider_contributes_only_tasks_when_google_is_unconfigured(monkeypatch):
     """The CI-green property, and the same discipline the MCP stub follows.
 
     A fresh checkout has no Google client, so no mail tool may appear. Tasks are
     local and always available, which is why they are separated out.
+
+    The unconfigured state is FORCED rather than inherited from the environment:
+    this read `settings` directly, so on a developer machine with Google
+    configured in .env it asserted the opposite of its own name.
     """
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "google_client_id", "")
+    monkeypatch.setattr(settings, "google_client_secret", "")
+    monkeypatch.setattr(settings, "agenda_encryption_key", "")
     specs = AgendaToolProvider().get_tools(CTX, db=None)
     # `open_agenda` is the handoff and is present on every path (tasks live
     # behind it too); the mail tools are what must be absent with no Google.
