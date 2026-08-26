@@ -3,8 +3,10 @@
 // rep photographing an RCPA sheet had no confirmation they had attached the
 // right one.
 
-import { useEffect, useState } from 'react'
-import { FileText, X } from 'lucide-react'
+import { useState } from 'react'
+import { FileText, ImageOff, X } from 'lucide-react'
+
+import type { PickedImage } from './attachments'
 
 import { cx } from '@/lib/cx'
 import { fmtBytes } from '@/lib/format'
@@ -15,7 +17,7 @@ export function AttachmentTray({
   documents = [],
   onRemoveDocument,
 }: {
-  files: File[]
+  files: PickedImage[]
   onRemove: (index: number) => void
   /** PDFs/DOCX picked in the composer. Rendered as labelled chips, not thumbs:
    *  a document is INGESTED into the rep's library — a permanent action — and
@@ -26,8 +28,8 @@ export function AttachmentTray({
   if (!files.length && !documents.length) return null
   return (
     <ul className="mb-2 flex flex-wrap items-center gap-2 px-1">
-      {files?.map((file, i) => (
-        <Thumb key={`${file.name}-${file.size}-${i}`} file={file} onRemove={() => onRemove(i)} />
+      {files?.map((image, i) => (
+        <Thumb key={image.url} image={image} onRemove={() => onRemove(i)} />
       ))}
       {documents?.map((file, i) => (
         <DocChip
@@ -65,16 +67,20 @@ function DocChip({ file, onRemove }: { file: File; onRemove?: () => void }) {
   )
 }
 
-function Thumb({ file, onRemove }: { file: File; onRemove: () => void }) {
-  // Created during the first render rather than in an effect: an effect would
-  // paint one frame with no image, and would set state as a cascading render.
-  const [url] = useState(() => URL.createObjectURL(file))
+function Thumb({ image, onRemove }: { image: PickedImage; onRemove: () => void }) {
+  const { file, url } = image
   const [removing, setRemoving] = useState(false)
+  // A file can pass ./attachments.ts's type check and still not decode — a
+  // truncated JPEG, or a .jpg that is really something else. Without this the
+  // tray showed the browser's broken-image glyph with the filename spilling out
+  // of it, which reads as "the app is broken" rather than "this photo cannot be
+  // read".
+  const [broken, setBroken] = useState(false)
 
-  // Revoked on unmount. An object URL pins the entire file in memory until
-  // released, and these are multi-megabyte phone photos.
-  useEffect(() => () => URL.revokeObjectURL(url), [url])
-
+  // No object URL is created or revoked here, deliberately. The URL belongs to
+  // the file, and the file belongs to the composer — a Thumb that owned its own
+  // URL and revoked it in an effect cleanup was broken by StrictMode's
+  // mount → cleanup → mount cycle, which revoked the URL and never recreated it.
   return (
     <li
       className={cx(
@@ -84,12 +90,26 @@ function Thumb({ file, onRemove }: { file: File; onRemove: () => void }) {
         removing ? 'animate-[pop_160ms_reverse_both]' : 'animate-pop',
       )}
     >
-      <img
-        src={url}
-        alt={file.name}
-        title={`${file.name} · ${fmtBytes(file.size)}`}
-        className="size-14 rounded-xl border border-line object-cover"
-      />
+      {broken ? (
+        <span
+          title={`${file.name} · ${fmtBytes(file.size)} — could not be displayed`}
+          className={cx(
+            'flex size-14 flex-col items-center justify-center gap-1 rounded-xl',
+            'border border-line bg-sunken px-1 text-center',
+          )}
+        >
+          <ImageOff className="size-4 shrink-0 text-fg-subtle" aria-hidden="true" />
+          <span className="w-full truncate text-2xs text-fg-subtle">{file.name}</span>
+        </span>
+      ) : (
+        <img
+          src={url}
+          alt={file.name}
+          title={`${file.name} · ${fmtBytes(file.size)}`}
+          onError={() => setBroken(true)}
+          className="size-14 rounded-xl border border-line object-cover"
+        />
+      )}
       <button
         type="button"
         aria-label={`Remove ${file.name}`}

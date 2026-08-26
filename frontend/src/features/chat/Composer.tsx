@@ -8,6 +8,14 @@ import { ArrowUp, Loader2, Mic, Paperclip, Square } from 'lucide-react'
 
 import { IconButton } from '@/components/ui'
 import { api, ApiError } from '@/lib/api'
+import {
+  ACCEPT_ATTRIBUTE,
+  type PickedImage,
+  releasePreviews,
+  sortPicks,
+  toPickedImages,
+  unsupportedMessage,
+} from './attachments'
 import { cx } from '@/lib/cx'
 import { CONTENT_COL } from '@/lib/format'
 import type { IngestedDocument } from '@/lib/types'
@@ -16,11 +24,11 @@ import { AttachmentTray } from './AttachmentTray'
 import { useVoiceInput } from './useVoiceInput'
 import { VoiceLevels } from './VoiceLevels'
 
-/** A composer pick that is a document, not an image. Documents are routed to
- *  the Library (POST /api/documents — a permanent, per-rep ingest) before the
- *  message is sent, so a file shared in any conversation still ends up in the
- *  one place all files live. */
-const DOC_PATTERN = /\.(pdf|docx)$/i
+/** Documents are routed to the Library (POST /api/documents — a permanent,
+ *  per-rep ingest) before the message is sent, so a file shared in any
+ *  conversation still ends up in the one place all files live. Which pick is a
+ *  document, which is an image and which is neither lives in ./attachments.ts,
+ *  next to the reason the third case exists. */
 
 /** The single source of truth for the textarea's growth limit. There were
  *  three coupled constraints before — this constant, a `max-h-40` class and a
@@ -43,7 +51,7 @@ interface Props {
 
 export function Composer({ onSend, onStop, streaming, disabled }: Props) {
   const [value, setValue] = useState('')
-  const [images, setImages] = useState<File[]>([])
+  const [images, setImages] = useState<PickedImage[]>([])
   const [documents, setDocuments] = useState<File[]>([])
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
@@ -113,7 +121,16 @@ export function Composer({ onSend, onStop, streaming, disabled }: Props) {
 
     const message = value.trim()
     if (message || images.length > 0 || ingested.length > 0) {
-      onSend(message, images, ingested)
+      onSend(
+        message,
+        images?.map((i) => i.file),
+        ingested,
+      )
+      // Sent: the tray is about to clear, so the previews are dead weight.
+      // Together with the remove handler above, these are the only two ways a
+      // preview stops being needed — the composer itself lives for the whole
+      // session, so there is no unmount path worth a ref mirror.
+      releasePreviews(images)
     }
     setValue('')
     setImages([])
@@ -139,7 +156,14 @@ export function Composer({ onSend, onStop, streaming, disabled }: Props) {
           {/* Inside the shell, not floating above it. */}
           <AttachmentTray
             files={images}
-            onRemove={(index) => setImages((prev) => prev?.filter((_, i) => i !== index))}
+            onRemove={(index) => {
+              // Read it out BEFORE the state update, and revoke outside the
+              // updater — React may call an updater twice, and a side effect in
+              // there runs twice with it.
+              const removed = images[index]
+              setImages((prev) => prev?.filter((_, i) => i !== index))
+              if (removed) releasePreviews([removed])
+            }}
             documents={documents}
             onRemoveDocument={(index) =>
               setDocuments((prev) => prev?.filter((_, i) => i !== index))
@@ -204,20 +228,28 @@ export function Composer({ onSend, onStop, streaming, disabled }: Props) {
             <input
               ref={fileRef}
               type="file"
-              accept="image/png,image/jpeg,image/webp,image/gif,.pdf,.docx"
+              accept={ACCEPT_ATTRIBUTE}
               multiple
               className="hidden"
               onChange={(e) => {
-                const picked = Array.from(e.target.files ?? [])
-                const docs = picked?.filter((f) => DOC_PATTERN.test(f.name))
-                const imgs = picked?.filter((f) => !DOC_PATTERN.test(f.name))
+                const {
+                  images: imgs,
+                  documents: docs,
+                  rejected,
+                } = sortPicks(Array.from(e.target.files ?? []))
                 if (imgs.length) {
-                  setImages((prev) => [...prev, ...imgs].slice(0, MAX_FILES))
+                  setImages((prev) => [...prev, ...toPickedImages(imgs)].slice(0, MAX_FILES))
                 }
                 if (docs.length) {
                   setDocuments((prev) => [...prev, ...docs].slice(0, MAX_FILES))
                 }
+                // Said now, not after sending. `accept` is only a hint, so an
+                // unsupported file can still be picked — it used to become a
+                // broken thumbnail and a server-side rejection.
+                setUploadError(unsupportedMessage(rejected))
                 setUploadNote(null)
+                // Let the same file be re-picked after a conversion.
+                e.target.value = ''
               }}
             />
             <div className="flex items-center gap-1">
