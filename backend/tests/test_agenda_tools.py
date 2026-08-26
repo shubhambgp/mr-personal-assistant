@@ -265,3 +265,35 @@ def test_a_body_longer_than_the_cap_is_truncated():
     }
     thread = gmail.parse_thread(raw, me=ME)
     assert len(thread.messages[0].body) == gmail.MAX_BODY_CHARS
+
+
+# ---------------------------------------------------------------------------
+# the handoff
+# ---------------------------------------------------------------------------
+
+
+async def test_the_handoff_hands_over_the_task_not_just_an_acknowledgement():
+    """`open_agenda` used to `del task` and return {"handed_off": true}.
+
+    The tool's own description asks the orchestrator to summarise the request in
+    `task`, and the handler threw it away — so the agenda agent's most recent
+    message was a content-free acknowledgement with no instruction in it. The
+    observed behaviour was the agenda agent narrating the handoff back to the rep
+    ("Handed off to Agenda to prepare the email...") and ending the turn: the
+    mail was never drafted and the approval card never appeared.
+
+    Asserted on the payload rather than on a model's behaviour, because the
+    payload is the part we control.
+    """
+    from app.tools.agenda_tools import handoff_tool
+
+    spec = handoff_tool()
+    payload = json.loads(await spec["handler"](task="email Dr Sharma the dosing card"))
+
+    assert payload["handed_off"] is True
+    assert payload["task"] == "email Dr Sharma the dosing card", (
+        "the orchestrator's summary was discarded — the agenda agent is handed a "
+        "turn with no instruction in it"
+    )
+    # And a directive to act, so "handed off" is never itself the answer.
+    assert "next" in payload and payload["next"].strip()

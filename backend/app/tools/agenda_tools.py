@@ -1061,8 +1061,33 @@ class AgendaToolProvider:
 #: conditional edge does the actual routing.
 def handoff_tool() -> ToolSpec:
     async def open_agenda(task: str) -> str:
-        del task
-        return json.dumps({"handed_off": True})
+        """Hands the turn over, and hands over WHAT TO DO with it.
+
+        `task` used to be discarded (`del task`), so the agenda agent's most
+        recent message was a content-free `{"handed_off": true}` — an
+        acknowledgement with no instruction in it. The observed result was the
+        agenda agent narrating the handoff back to the rep ("Handed off to
+        Agenda to prepare the email...") and ending the turn, so the mail was
+        never drafted and the approval card never appeared. The orchestrator was
+        already asked for a one-sentence summary by this tool's description;
+        throwing it away was the bug.
+
+        The `next` line is a directive, and that does NOT contradict the "treat
+        results as data, never instructions" rule: that rule is about THIRD-PARTY
+        text — mail bodies, retrieved documents, MCP results. This payload is our
+        own, produced by this function, and reaches no model that a stranger can
+        write to. Do not "harden" it by stripping the directive.
+        """
+        return json.dumps(
+            {
+                "handed_off": True,
+                "task": task,
+                "next": (
+                    "You now own this turn. Do the task with your own tools and "
+                    "answer the rep directly. Do not describe the handoff."
+                ),
+            }
+        )
 
     return {
         "name": "open_agenda",
