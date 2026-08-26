@@ -115,11 +115,28 @@ class Connection:
     rep_code: int
     email_account: str
     scopes: tuple[str, ...]
-    calendar_tz: str
+    #: The calendar's own zone, or None when GOOGLE WOULD NOT SAY. Those are
+    #: different facts and this used to store both as "UTC": the timezone
+    #: endpoints all need a calendar *settings* scope, which `calendar.events`
+    #: is not, so every connection 403'd and every rep was recorded as UTC. A
+    #: rep who asked for an 11:00 meeting got 11:00 UTC — 16:30 in IST. Read it
+    #: through `effective_tz`, never directly.
+    calendar_tz: str | None
     #: The grant is dead and the credential has been deleted. The row is kept so
     #: Settings can name WHICH account to reconnect, so callers must check this
     #: rather than treating a returned Connection as usable.
     stale: bool = False
+
+    @property
+    def effective_tz(self) -> str:
+        """The zone to book and display in. Never None.
+
+        The connected calendar's own zone when Google told us, otherwise the
+        deployment's configured zone — which is host-derived, so on a field-force
+        server it is the field force's zone. UTC is what we fall back to only if
+        that is genuinely what the server is set to.
+        """
+        return self.calendar_tz or settings.agenda_timezone
 
     @property
     def can_read_bodies(self) -> bool:
@@ -165,7 +182,7 @@ def connection(chair_id: int, rep_code: int) -> Connection | None:
         rep_code=int(row["rep_code"]),
         email_account=str(row["email_account"]),
         scopes=tuple(row["scopes"] or ()),
-        calendar_tz=str(row["calendar_tz"] or "UTC"),
+        calendar_tz=str(row["calendar_tz"]) if row["calendar_tz"] else None,
         stale=row["needs_reconnect_at"] is not None,
     )
 
@@ -205,7 +222,7 @@ def store_connection(
     rep_code: int,
     email_account: str,
     scopes: list[str],
-    calendar_tz: str,
+    calendar_tz: str | None,
     refresh_token: str,
 ) -> None:
     """Upsert one rep's connection. The refresh token is encrypted before it lands."""
@@ -791,8 +808,11 @@ def rep_timezone(ctx: RepContext) -> ZoneInfo:
     tz_name = settings.agenda_timezone
     try:
         row = connection(ctx.chair_id, ctx.rep_code)
-        if row is not None and row.calendar_tz:
-            tz_name = row.calendar_tz
+        if row is not None:
+            # Through the resolver, not the raw field. This used to spell the
+            # same precedence out again — and a second copy of the rule is
+            # exactly how a 403 fallback became a stored fact.
+            tz_name = row.effective_tz
     except Exception:  # noqa: BLE001 — a lookup failure must not break the task list
         log.warning("calendar_tz lookup failed; using configured zone", exc_info=True)
     try:
@@ -1079,7 +1099,7 @@ async def events(ctx: RepContext, *, from_date: date, to_date: date) -> list[dic
     if span < 0 or span > 60:
         to_date = from_date + timedelta(days=min(max(span, 0), 60))
     found = await calendar.list_events(
-        token, from_date=from_date, to_date=to_date, tz=conn_row.calendar_tz
+        token, from_date=from_date, to_date=to_date, tz=conn_row.effective_tz
     )
     return [
         {
@@ -1346,10 +1366,10 @@ async def create_calendar_event(
     except ValueError:
         return json.dumps({"error": f"starts_at must be YYYY-MM-DDTHH:MM; got {starts_at!r}."})
     try:
-        tz = ZoneInfo(conn_row.calendar_tz)
+        tz = ZoneInfo(conn_row.effective_tz)
     except Exception:  # noqa: BLE001 — an unknown zone must not book the wrong hour silently
         return json.dumps(
-            {"error": f"The calendar timezone {conn_row.calendar_tz!r} is not recognised."}
+            {"error": f"The calendar timezone {conn_row.effective_tz!r} is not recognised."}
         )
     when = naive if naive.tzinfo else naive.replace(tzinfo=tz)
     minutes = max(15, min(int(duration_minutes or 30), 480))
@@ -1402,7 +1422,7 @@ async def create_calendar_event(
             duration_minutes=minutes,
             attendees=[a.strip().lower() for a in attendees],
             notes=notes,
-            tz=conn_row.calendar_tz,
+            tz=conn_row.effective_tz,
             notify=notify,
         )
     except GoogleError as exc:
@@ -1520,10 +1540,10 @@ async def update_calendar_event(
         except ValueError:
             return json.dumps({"error": f"starts_at must be YYYY-MM-DDTHH:MM; got {starts_at!r}."})
         try:
-            tz = ZoneInfo(conn_row.calendar_tz)
+            tz = ZoneInfo(conn_row.effective_tz)
         except Exception:  # noqa: BLE001 — an unknown zone must not move the wrong hour silently
             return json.dumps(
-                {"error": f"The calendar timezone {conn_row.calendar_tz!r} is not recognised."}
+                {"error": f"The calendar timezone {conn_row.effective_tz!r} is not recognised."}
             )
         when = naive if naive.tzinfo else naive.replace(tzinfo=tz)
 
@@ -1547,7 +1567,7 @@ async def update_calendar_event(
         await calendar.update_event(
             token,
             event_id=event_id,
-            tz=conn_row.calendar_tz,
+            tz=conn_row.effective_tz,
             notify=notify,
             title=title,
             starts_at=when,

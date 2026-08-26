@@ -92,7 +92,9 @@ async def get_connection(rep: AgendaRep) -> dict:
         "stale": stale,
         "email_account": connection.email_account if connection else None,
         "scopes": list(connection.scopes) if connection else [],
-        "calendar_tz": connection.calendar_tz if connection else None,
+        # The zone the app will actually book in, so Settings cannot show
+        # blank while events land in a different hour.
+        "calendar_tz": connection.effective_tz if connection else None,
         "why": (
             "The connection to this account has expired — Google needs the rep's consent "
             "again. Reconnecting takes one click and replaces the stored credential."
@@ -150,10 +152,22 @@ async def callback(rep: CurrentRep, code: str = "", state: str = "") -> Redirect
         email_account = str(profile.get("email") or "").lower()
         if not email_account:
             return _back_to_app("failed")
+        # NULL, not "UTC", when Google will not say. Every timezone endpoint
+        # needs a calendar *settings* scope and we request `calendar.events`, so
+        # this 403s on every connection — storing "UTC" recorded a guess as a
+        # fact, and a rep asking for an 11:00 meeting got 11:00 UTC (16:30 IST).
+        # None means "unknown" and Connection.effective_tz falls back to the
+        # deployment's own zone. Widening the scope would give the real per-rep
+        # zone at the cost of every rep re-consenting — see docs/GOOGLE_SETUP.md.
         try:
-            tz = await gcal.timezone(access_token)
+            tz: str | None = await gcal.timezone(access_token)
         except GoogleError:
-            tz = "UTC"
+            log.info(
+                "calendar timezone unavailable at the granted scope; "
+                "falling back to the configured zone",
+                extra={"chair_id": rep.chair_id},
+            )
+            tz = None
         await asyncio.to_thread(
             agenda_service.store_connection,
             chair_id=rep.chair_id,

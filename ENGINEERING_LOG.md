@@ -1934,3 +1934,41 @@ the env leak had nothing to leak; CI never completes an OAuth round trip, so the
 relative redirect never resolved; and CI's mailbox is a fixture where everyone
 writes first. A guard can be perfectly tested against the world the tests build
 and still be wrong about the one it ships into.
+
+## 24. UTC was a guess wearing a fact's clothes
+
+A rep asked for an 11:00 meeting and got one at 16:30. The hour was never
+mis-parsed — it was attached to the wrong zone.
+
+At connect time the app reads the calendar's timezone and stores it on the
+connection. Every one of the Calendar API's timezone endpoints —
+`users/me/settings/timezone`, `calendars/primary`, `calendarList/primary` —
+requires a calendar *settings* scope, and this app requests `calendar.events`.
+All three return 403 (measured against a live connection, all three, before
+changing anything). The callback's handler was:
+
+```python
+except GoogleError:
+    tz = "UTC"
+```
+
+So every rep in the deployment was recorded as being in UTC, and `create_event`
+attached `ZoneInfo("UTC")` to the naive `11:00` the model passed. 11:00 UTC is
+16:30 IST. The 403 was in the log the whole time, at WARNING, once per connect.
+
+**The bug is the conflation, not the fallback.** "The calendar is in UTC" and
+"Google would not tell us" are different facts, and one string was carrying both.
+Storing NULL for the second, with a single `Connection.effective_tz` resolver
+that falls back to the deployment's configured zone, makes the guess visible as a
+guess. `rep_timezone()` had independently spelled out the same precedence, so it
+now calls the resolver too — a second copy of a rule is how the first one drifts.
+
+Two things made this survive: the fallback value was *plausible* (UTC is the
+conventional default, so nothing looked wrong in the database), and the failing
+call was wrapped in a `try/except` whose whole purpose was to not fail the
+connect. A degraded path that reports success is indistinguishable from a working
+one until someone reads the clock.
+
+**Lesson:** when a lookup fails, do not substitute a value of the same type and
+carry on. `None` is the honest answer, and it forces the fallback to be applied
+where the meaning is known rather than where the error was caught.

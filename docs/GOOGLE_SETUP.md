@@ -100,6 +100,25 @@ The last one depends on `AGENDA_GMAIL_SCOPE`:
   the search query parameter for that scope. The app withholds the tool rather
   than offering one that fails.
 
+### The calendar timezone, and the scope that would fetch it
+
+`calendar.events` lets the app read and write events. It does **not** let it read
+the calendar's *timezone*: `users/me/settings/timezone`, `calendars/primary` and
+`calendarList/primary` all return **403 PERMISSION_DENIED** on this scope set
+(measured, not assumed). So the per-rep zone is unavailable, and the connection
+stores it as NULL — meaning *unknown*, not UTC.
+
+The app then books and displays in `AGENDA_TIMEZONE`, which defaults to the
+server's own zone. On a server deployed for one field force that is the right
+answer, and it is why the meeting hour a rep says is the hour that reaches
+Google.
+
+Adding `https://www.googleapis.com/auth/calendar.settings.readonly` would fetch
+the real per-rep zone — worth it for a field force spanning several zones, at the
+cost of **every rep re-consenting**, because a granted token never gains scopes.
+If you add it, existing connections keep working on the fallback until each rep
+reconnects.
+
 Deliberately **not** requested: `gmail.modify` (nothing here marks mail read,
 labels or archives, so a stolen token cannot alter the mailbox) and
 `gmail.compose` (drafts live in the approval card, not in Gmail).
